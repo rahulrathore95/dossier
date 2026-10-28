@@ -61,7 +61,7 @@ const posting = (id: string, extra: Partial<ShownPosting> = {}): ShownPosting =>
   ...extra,
 });
 
-const stored = (postings: ShownPosting[], next: string | null = null): StoredSearch => ({ id: "run-1", source: "JSEARCH", query, ranAt: "today at 14:32", postings, next });
+const stored = (postings: ShownPosting[], next: string | null = null): StoredSearch => ({ id: "run-1", source: "JSEARCH", query, ranAt: "today at 14:32", postings, next, report: [] });
 
 const screenProps: ComponentProps<typeof JobsScreen> = {
   source: "JSEARCH",

@@ -165,6 +165,19 @@ export const settingsSchema = z.object({
    * listing that only names the company in the description is still caught.
    */
   blockedCompanies: stringList.catch([]),
+  /**
+   * What a fresh search asks (this fork): every source with a key saved,
+   * merged and de-duplicated ("all"), or the chosen one first and the next
+   * only when it fails ("fallback", what this fork did before). "all" finds
+   * more, and spends one search from each source's plan.
+   */
+  jobSearchMode: z.enum(["all", "fallback"]).catch("all"),
+  /** More role titles to search for besides a search's keywords, e.g. "Staff Data Engineer" (this fork). */
+  targetRoles: stringList.catch([]),
+  /** The least pay worth showing, in lakhs a year (₹ LPA); 0 turns it off. Only pay a posting states in rupees is compared (this fork). */
+  salaryFloorLpa: z.coerce.number().int().min(0).max(1000).catch(40),
+  /** Leave out postings whose own words put them outside India, or remote only from another country (this fork). */
+  requireIndia: flag(true),
   // Job agent (E16): one search, run once a day. Off until it's turned on.
   // It asks the source in Settings → Job search, with its key.
   agentEnabled: flag(false),

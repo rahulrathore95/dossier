@@ -13,8 +13,10 @@ import {
   type SearchProblem,
   type SearchQuery,
   type ShownPosting,
+  type SourceReport,
   type StoredSearch,
 } from "@/lib/job-search/search";
+import { withRelevance } from "@/lib/job-search/relevance-profile";
 import { postingStates } from "@/lib/postings";
 import { prisma } from "@/lib/prisma";
 
@@ -32,10 +34,17 @@ function postingsOf(value: Prisma.JsonValue): FoundPosting[] {
 
 const queryOf = (value: Prisma.JsonValue): SearchQuery => searchQuerySchema.catch(EMPTY_QUERY).parse(value);
 
-/** Postings with where each stands for the user now. */
-async function withStates(postings: FoundPosting[]): Promise<ShownPosting[]> {
-  const states = await postingStates(postings);
-  return postings.map((posting) => ({ ...posting, state: states.get(postingKey(posting))! }));
+/** The report column, read back; a search kept before this fork's reports has none. */
+function reportOf(value: Prisma.JsonValue | null): SourceReport[] {
+  return Array.isArray(value) ? (value as SourceReport[]) : [];
+}
+
+/** Postings with where each stands for the user now, and how relevant each is to the master resume (relevance.ts), best first. */
+async function withStates(postings: FoundPosting[], query?: SearchQuery): Promise<ShownPosting[]> {
+  const [states, measured] = await Promise.all([postingStates(postings), withRelevance(postings, query)]);
+  return measured
+    .map((posting) => ({ ...posting, state: states.get(postingKey(posting))! }))
+    .toSorted((a, b) => b.relevance.score - a.relevance.score);
 }
 
 /** "today at 14:32", "yesterday at 09:05" or "on Thu 1 Oct at 18:20". */
@@ -45,12 +54,12 @@ function ranAtLabel(date: Date, timeZone?: string, now = new Date()): string {
   return `${day} at ${formatTime(date, timeZone)}`;
 }
 
-/** Runs a search on the chosen source and keeps it with its first page. */
+/** Runs a search (every source with a key, or by fallback, as Settings says) and keeps it with its first page and what each source did. */
 export async function runSearch(query: SearchQuery): Promise<{ ok: true; id: string } | SearchProblem> {
   const answer = await askSource(query);
-  if (!answer.ok) return answer;
+  if (!answer.ok) return { ok: false, problem: answer.problem, message: answer.message };
   const search = await prisma.postingSearch.create({
-    data: { source: answer.source, query, postings: answer.postings, found: answer.postings.length, next: answer.next },
+    data: { source: answer.source, query, postings: answer.postings, found: answer.postings.length, next: answer.next, report: answer.report },
     select: { id: true },
   });
   return { ok: true, id: search.id };
@@ -67,8 +76,9 @@ export async function loadSearch(id?: string, { timeZone, now = new Date() }: { 
     source: search.source,
     query: queryOf(search.query),
     ranAt: ranAtLabel(search.createdAt, timeZone, now),
-    postings: await withStates(postingsOf(search.postings)),
+    postings: await withStates(postingsOf(search.postings), queryOf(search.query)),
     next: search.next,
+    report: reportOf(search.report),
   };
 }
 
@@ -78,13 +88,13 @@ export async function showMoreFor(id: string): Promise<{ ok: true; postings: Sho
   if (!search) return { ok: false, problem: "changed", message: "That search is no longer kept. Search again." };
   if (!search.next) return { ok: true, postings: [], next: null };
   const answer = await askSource(queryOf(search.query), { source: search.source, next: search.next });
-  if (!answer.ok) return answer;
+  if (!answer.ok) return { ok: false, problem: answer.problem, message: answer.message };
   const kept = postingsOf(search.postings);
   const seen = new Set(kept.map(postingKey));
   const added = answer.postings.filter((posting) => !seen.has(postingKey(posting)));
   const postings = [...kept, ...added];
   await prisma.postingSearch.update({ where: { id }, data: { postings, found: postings.length, next: answer.next } });
-  return { ok: true, postings: await withStates(added), next: answer.next };
+  return { ok: true, postings: await withStates(added, queryOf(search.query)), next: answer.next };
 }
 
 /** Every kept search, newest first, grouped by the day it ran in the user's time zone. */

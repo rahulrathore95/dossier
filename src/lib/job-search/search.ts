@@ -4,6 +4,8 @@ import { PostingSource } from "@/generated/prisma/enums";
 import { daysBetween, formatShortCalendarDate } from "@/lib/dates";
 import type { PostingFit } from "@/lib/fit";
 
+import type { Relevance } from "./relevance";
+
 import { countryCodeFor } from "./countries";
 
 // Job search (E14): what a search asks for and what a posting looks like,
@@ -49,6 +51,12 @@ export const searchQuerySchema = z.object({
   radiusKm: z.literal(RADII_KM),
   remoteOnly: z.boolean(),
   postedWithin: z.enum(POSTED_VALUES),
+  /**
+   * More role titles to search for besides the keywords (this fork): the
+   * target roles in Settings → Job search, filled in by find.ts. Only
+   * sources that take a free-text query (Firecrawl) use them.
+   */
+  roles: z.array(z.string().trim().max(100)).max(6).optional(),
 });
 export type SearchQuery = z.output<typeof searchQuerySchema>;
 
@@ -74,6 +82,12 @@ export const foundPostingSchema = z.object({
   /** As the source writes it, e.g. "EUR 60,000–75,000 a year"; empty when there's none. */
   salary: z.string().max(200),
   postedAt: z.iso.datetime().nullable(),
+  /**
+   * When a web search engine dates the page (this fork, Firecrawl's "1 day
+   * ago"): not the posting date, which the page may not state, so it's kept
+   * apart and labelled as such. Absent for sources that give a real date.
+   */
+  indexedAt: z.iso.datetime().nullable().optional(),
   /** Where to read it or apply: always http(s), or empty. */
   url: z
     .string()
@@ -89,7 +103,27 @@ export const foundPostingSchema = z.object({
 export type FoundPosting = z.output<typeof foundPostingSchema>;
 
 /** A page of results, and what to ask for the next page (null on the last one). */
-export type SearchPage = { postings: FoundPosting[]; next: string | null };
+export type SearchPage = {
+  postings: FoundPosting[];
+  next: string | null;
+  /** What the source left out or couldn't do, for the screen (this fork): "12 list pages left out", "2 of 7 searches hit the rate limit". */
+  notes?: string[];
+};
+
+/**
+ * What happened at one source during a search (this fork), so a short list
+ * of results is never mistaken for everything there is: which sources were
+ * asked, which were skipped and why, and what each left out.
+ */
+export type SourceReport = {
+  source: JobSource;
+  /** Asked and answered; asked and failed; not asked because it's resting after a failure (health.ts); or not set up. */
+  status: "ok" | "failed" | "resting" | "not-configured";
+  /** Postings it gave, before blocked companies and repeats were taken out. */
+  found: number;
+  /** What went wrong, or what it left out; "" when there's nothing to say. */
+  message: string;
+};
 
 /** Where a posting stands for the user (E14-5). */
 export type PostingState = {
@@ -103,8 +137,8 @@ export type PostingState = {
   score: PostingFit | null;
 };
 
-/** A posting as Find jobs shows it. */
-export type ShownPosting = FoundPosting & { state: PostingState };
+/** A posting as Find jobs shows it, with its relevance to the master resume (this fork, relevance.ts) when it was measured. */
+export type ShownPosting = FoundPosting & { state: PostingState; relevance?: Relevance };
 
 /** What went wrong with a search, in words for the screen (E14-6). */
 export type SearchProblem = { ok: false; problem: "off" | "not-accepted" | "no-country" | "no-key" | "key" | "quota" | "country" | "unavailable" | "changed"; message: string };
@@ -121,6 +155,8 @@ export type StoredSearch = {
   ranAt: string;
   postings: ShownPosting[];
   next: string | null;
+  /** What each source did (this fork); empty for searches kept before it. */
+  report: SourceReport[];
 };
 
 /** A search in the Past searches list, grouped by the day it ran. */

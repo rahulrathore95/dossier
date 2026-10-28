@@ -4,6 +4,7 @@ import { json, stubFetch } from "@/lib/ai/test-http";
 import { jsearchV2LastPage, jsearchV2Page } from "@/test/job-search-fixtures";
 
 import { clearJobSearchCache } from "./cache";
+import { clearSourceHealth } from "./health";
 import { postingDetails, searchPostings, testSource } from "./index";
 import { EMPTY_QUERY } from "./search";
 import { sourceCovers } from "./sources";
@@ -13,6 +14,7 @@ const ninja = { key: "ak_test", host: "openwebninja" as const };
 
 beforeEach(() => {
   clearJobSearchCache();
+  clearSourceHealth();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => {

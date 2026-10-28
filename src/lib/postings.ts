@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Posting } from "@/generated/prisma/client";
+import { withRelevance } from "@/lib/job-search/relevance-profile";
 import { linkKey, postingKey, type FoundPosting, type JobSource, type PostingState, type ShownPosting } from "@/lib/job-search/search";
 import { stringsOf } from "@/lib/agent/candidates";
 import { prisma } from "@/lib/prisma";
@@ -99,11 +100,10 @@ export async function listPostings(view: "saved" | "dismissed"): Promise<ShownPo
     where: view === "saved" ? { savedAt: { not: null } } : { dismissedAt: { not: null } },
     orderBy: view === "saved" ? { savedAt: "desc" } : { dismissedAt: "desc" },
   });
-  const states = await postingStates(rows.map(foundFromPosting));
-  return rows.map((row) => {
-    const found = foundFromPosting(row);
-    return { ...found, state: states.get(postingKey(found))! };
-  });
+  const found = rows.map(foundFromPosting);
+  const [states, measured] = await Promise.all([postingStates(found), withRelevance(found)]);
+  // Newest first, as kept; relevance (this fork) is shown, not sorted by.
+  return measured.map((posting) => ({ ...posting, state: states.get(postingKey(posting))! }));
 }
 
 /** How many postings are saved and dismissed, for the views' tabs. */

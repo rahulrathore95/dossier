@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { demoProfile } from "@/lib/demo-profile";
+import { clearSourceHealth } from "@/lib/job-search/health";
 import type { FoundPosting, SearchQuery } from "@/lib/job-search/search";
 import type { JobContext } from "@/lib/jobs/runner";
 import { sweepFinishedJobs } from "@/lib/jobs/retention";
@@ -52,6 +53,10 @@ vi.mock("@/lib/job-search/config", () => ({
     source: fake.source,
     saved: true,
     blockedCompanies: fake.blockedCompanies,
+    mode: "fallback",
+    targetRoles: [],
+    salaryFloorLpa: 40,
+    requireIndia: true,
     jsearch: { key: "jsearch-key", host: "openwebninja", keyState: "set" },
     adzuna: { appId: "app", key: "adzuna-key", keyState: "set" },
   }),
@@ -106,6 +111,7 @@ const context = (abort?: AbortController): JobContext & { steps: string[] } => {
 
 beforeEach(async () => {
   await resetDatabase(prisma());
+  clearSourceHealth();
   Object.assign(fake, { postings: page, searches: 0, source: "JSEARCH", ai: true, failOn: null, onScore: () => {}, blockedCompanies: [] });
   await saveSettings({ agentEnabled: true, agentQuery: query });
 });

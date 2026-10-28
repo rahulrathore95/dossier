@@ -15,7 +15,7 @@ import { JOB_SOURCES, type JobSource, type JSearchHost } from "@/lib/job-search/
 import { JOB_KEY_UNREADABLE, JSEARCH_KEY_URLS, SOURCE_INFO, type JobKeyState, type JobSearchSettingsView } from "@/lib/job-search/sources";
 import { cn } from "@/lib/cn";
 
-import { blockCompany, saveJobSearchDetails, saveJobSource, saveJobSourceKey, testJobSource, unblockCompany } from "./actions";
+import { blockCompany, saveJobSearchDetails, saveJobSource, saveJobSourceKey, saveSearchPreferences, testJobSource, unblockCompany } from "./actions";
 import { SettingsSectionIntro } from "./settings-screen";
 
 type Choice = JobSource | "OFF";
@@ -194,8 +194,133 @@ export function JobSearchSection({ initial }: { initial: JobSearchSettingsView }
         </>
       )}
 
+      <SearchPreferencesCard initial={view.preferences} resting={view.resting ?? []} />
       <BlockedCompaniesCard initial={view.blockedCompanies} />
     </>
+  );
+}
+
+type Preferences = JobSearchSettingsView["preferences"];
+
+/**
+ * How searches run and what's relevant (this fork): every source with a key
+ * at once or one after another, the roles to look for, the salary floor and
+ * whether a job must be open to India. Each saves as it changes.
+ */
+function SearchPreferencesCard({ initial, resting }: { initial: Preferences; resting: NonNullable<JobSearchSettingsView["resting"]> }) {
+  const track = useTrackSave();
+  const [preferences, setPreferences] = useState(initial);
+  const [roleDraft, setRoleDraft] = useState("");
+  const [floor, setFloor] = useState(String(initial.salaryFloorLpa));
+  const modeLabel = useId();
+
+  async function save(change: Partial<Preferences>) {
+    const before = preferences;
+    setPreferences({ ...preferences, ...change });
+    const result = await track(saveSearchPreferences({ ...change, targetRoles: change.targetRoles ? [...change.targetRoles] : undefined }));
+    if (!result.ok) {
+      setPreferences(before);
+      toast(result.error);
+      return;
+    }
+    setPreferences(result.data);
+  }
+
+  const addRole = () => {
+    const role = roleDraft.trim();
+    if (!role) return;
+    setRoleDraft("");
+    if (preferences.targetRoles.some((entry) => entry.toLocaleLowerCase() === role.toLocaleLowerCase())) return;
+    void save({ targetRoles: [...preferences.targetRoles, role] });
+  };
+
+  const saveFloor = () => {
+    const value = Number(floor);
+    if (!Number.isInteger(value) || value < 0 || value > 1000) {
+      setFloor(String(preferences.salaryFloorLpa));
+      toast("Enter the salary floor as whole lakhs a year, 0 to 1000.");
+      return;
+    }
+    if (value !== preferences.salaryFloorLpa) void save({ salaryFloorLpa: value });
+  };
+
+  return (
+    <Card className="flex flex-col gap-5 px-7 py-6">
+      <h3 className="text-lead font-medium">What to look for</h3>
+
+      <div className="flex flex-col gap-[7px]">
+        <span id={modeLabel} className="text-sm font-medium">
+          Sources per search
+        </span>
+        <SegmentedControl
+          aria-labelledby={modeLabel}
+          value={preferences.mode}
+          onValueChange={(mode) => void save({ mode })}
+          options={[
+            { value: "all", label: "Every source with a key" },
+            { value: "fallback", label: "Chosen source, others if it fails" },
+          ]}
+        />
+        <p className="text-meta text-muted">
+          Every source finds more, shows each job once, and spends one search from each source&apos;s plan. A source that just failed rests for a while
+          instead of being asked again.
+        </p>
+        {resting.length > 0 && (
+          <ul aria-label="Resting sources" className="flex flex-col gap-1 rounded-card bg-warning-surface px-4 py-2.5 text-meta text-warning">
+            {resting.map((entry) => (
+              <li key={entry.source}>
+                {SOURCE_INFO[entry.source].name} rests until {new Date(entry.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: {entry.message}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        <span className="text-sm font-medium">Target roles</span>
+        <p className="text-meta text-muted">
+          Searched for besides a search&apos;s own words, and used to judge a title&apos;s relevance, e.g. Staff Data Engineer, Data Platform Engineer.
+        </p>
+        {preferences.targetRoles.length > 0 && (
+          <ul className="flex flex-wrap gap-2" aria-label="Target roles">
+            {preferences.targetRoles.map((role) => (
+              <li key={role}>
+                <RemovableChip removeLabel={`Remove ${role}`} onRemove={() => void save({ targetRoles: preferences.targetRoles.filter((entry) => entry !== role) })}>
+                  {role}
+                </RemovableChip>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Input
+          aria-label="Add a target role"
+          placeholder="e.g. Analytics Engineer"
+          value={roleDraft}
+          onChange={(event) => setRoleDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            addRole();
+          }}
+          enterKeyHint="done"
+        />
+      </div>
+
+      <div className="flex flex-wrap items-end gap-6">
+        <label className="flex flex-col gap-[7px] text-sm font-medium">
+          Salary floor (₹ LPA)
+          <Input inputMode="numeric" className="w-28" value={floor} onChange={(event) => setFloor(event.target.value)} onBlur={saveFloor} />
+        </label>
+        <label className="flex items-center gap-2 pb-2 text-sm">
+          <input type="checkbox" checked={preferences.requireIndia} onChange={(event) => void save({ requireIndia: event.target.checked })} />
+          Must be open to someone in India
+        </label>
+      </div>
+      <p className="-mt-2 text-meta text-muted">
+        Only pay a posting states in rupees is compared; other currencies are shown as written, and undisclosed pay is never guessed. A posting is left out
+        only when its own words put it below the floor or outside India — and you can always show what was left out.
+      </p>
+    </Card>
   );
 }
 

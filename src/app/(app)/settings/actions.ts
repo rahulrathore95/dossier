@@ -193,6 +193,20 @@ export const blockCompany = action(
   },
 );
 
+/** How searches run and what's relevant (this fork): every source or fallback, target roles, the salary floor, and India. */
+export const saveSearchPreferences = action(
+  z.strictObject({
+    mode: z.enum(["all", "fallback"]).optional(),
+    targetRoles: z.array(z.string().trim().min(1).max(100)).max(6, "Up to six target roles.").optional(),
+    salaryFloorLpa: z.number().int().min(0).max(1000).optional(),
+    requireIndia: z.boolean().optional(),
+  }),
+  async ({ mode, targetRoles, salaryFloorLpa, requireIndia }) => {
+    await saveSettings({ jobSearchMode: mode, targetRoles: targetRoles ? [...new Set(targetRoles)] : undefined, salaryFloorLpa, requireIndia });
+    return (await loadView()).preferences;
+  },
+);
+
 /** Removes a company from the blocklist. */
 export const unblockCompany = action(z.object({ name: z.string().min(1) }), async ({ name }) => {
   const { blockedCompanies } = await loadSettings();

@@ -13,6 +13,10 @@ export type JobSearchSettingsView = {
   arbeitsagentur: { offered: boolean; acceptedAt: string | null };
   /** Companies no search shows a posting from (this fork, E14-8). */
   blockedCompanies: readonly string[];
+  /** How searches run and what's relevant (this fork). */
+  preferences: { mode: "all" | "fallback"; targetRoles: readonly string[]; salaryFloorLpa: number; requireIndia: boolean };
+  /** Sources resting after a recent failure (health.ts), and why. */
+  resting?: readonly { source: JobSource; message: string; until: string }[];
 };
 
 export const JOB_KEY_UNREADABLE = "Your saved key can't be read. Please enter it again.";

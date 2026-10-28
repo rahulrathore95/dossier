@@ -36,6 +36,8 @@ export type JobsScreenProps = {
   arbeitsagenturNote?: boolean;
   /** Score opens a Claude chat, which scores through the connector (#221). */
   scoreInClaude?: boolean;
+  /** The salary floor in Settings → Job search, for the results' salary filter (this fork). */
+  salaryFloorLpa?: number;
   /** Every country by name, named on the server. */
   countries: readonly Country[];
   /** The search, past searches, or the Saved or Dismissed postings. */
@@ -63,6 +65,7 @@ export function JobsScreen({
   source,
   arbeitsagenturNote = false,
   scoreInClaude = false,
+  salaryFloorLpa = 40,
   countries,
   view,
   query,
@@ -100,7 +103,7 @@ export function JobsScreen({
     return (
       <>
         {header}
-        <PostingResults key={view} mode={view} postings={kept} today={today} scoreInClaude={scoreInClaude} />
+        <PostingResults key={view} mode={view} postings={kept} today={today} scoreInClaude={scoreInClaude} salaryFloorLpa={salaryFloorLpa} />
       </>
     );
   }
@@ -152,6 +155,7 @@ export function JobsScreen({
             search={search}
             today={today}
             scoreInClaude={scoreInClaude}
+            salaryFloorLpa={salaryFloorLpa}
             onSearchAgain={() => run(search.query)}
             searching={pending}
           />

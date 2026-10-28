@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JobSearchSettingsView } from "@/lib/job-search/sources";
 
-import { blockCompany, saveJobSearchDetails, saveJobSource, saveJobSourceKey, testJobSource, unblockCompany } from "./actions";
+import { blockCompany, saveJobSearchDetails, saveJobSource, saveJobSourceKey, saveSearchPreferences, testJobSource, unblockCompany } from "./actions";
 import { JobSearchSection } from "./job-search-section";
 
 vi.mock("./actions", () => ({
@@ -14,6 +14,7 @@ vi.mock("./actions", () => ({
   testJobSource: vi.fn(),
   blockCompany: vi.fn(),
   unblockCompany: vi.fn(),
+  saveSearchPreferences: vi.fn(),
 }));
 vi.mock("@/components/toast", () => ({ toast: vi.fn(), toastResult: (result: unknown) => result }));
 
@@ -24,6 +25,7 @@ const off: JobSearchSettingsView = {
   firecrawl: { keyState: "none" },
   arbeitsagentur: { offered: true, acceptedAt: null },
   blockedCompanies: [],
+  preferences: { mode: "all", targetRoles: [], salaryFloorLpa: 40, requireIndia: true },
 };
 const ACCEPTED = "2026-10-23T09:00:00.000Z";
 const withSource = (view: Partial<JobSearchSettingsView>): JobSearchSettingsView => ({ ...off, ...view });
@@ -40,13 +42,16 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async ({ name }) => ({ ok: true, data: { blockedCompanies: [name] } }));
   vi.mocked(unblockCompany).mockReset().mockResolvedValue({ ok: true, data: { blockedCompanies: [] } });
+  vi.mocked(saveSearchPreferences)
+    .mockReset()
+    .mockImplementation(async (change) => ({ ok: true, data: { ...off.preferences, ...change, targetRoles: change.targetRoles ?? off.preferences.targetRoles } }));
 });
 
 describe("JobSearchSection", () => {
   it("offers the three sources and Off, as a radio group, Off by default", () => {
     render(<JobSearchSection initial={off} />);
     expect(screen.getByRole("heading", { name: "Job search" })).toBeInTheDocument();
-    expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual([
+    expect(within(screen.getByRole("radiogroup", { name: "Job source" })).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual([
       "JSearch",
       "Adzuna",
       "Firecrawl",
@@ -112,7 +117,7 @@ describe("JobSearchSection", () => {
     expect(saveJobSource).toHaveBeenCalledWith({ source: "ARBEITSAGENTUR", accepted: true });
     // Saved: the note stays, without the box, and it can be tested.
     expect(await screen.findByRole("button", { name: "Test connection" })).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "I understand, and choose this source myself" })).not.toBeInTheDocument();
     expect(screen.getByText(/has no official API/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/key/i)).not.toBeInTheDocument();
     expect(screen.getByText(/The job agent doesn't search this source/)).toBeInTheDocument();
@@ -135,7 +140,7 @@ describe("JobSearchSection", () => {
 
   it("leaves the Arbeitsagentur out when the server doesn't offer it", () => {
     render(<JobSearchSection initial={withSource({ arbeitsagentur: { offered: false, acceptedAt: null } })} />);
-    expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["JSearch", "Adzuna", "Firecrawl", "Off"]);
+    expect(within(screen.getByRole("radiogroup", { name: "Job source" })).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["JSearch", "Adzuna", "Firecrawl", "Off"]);
   });
 
   it("asks Firecrawl for a key, like JSearch and Adzuna", async () => {
@@ -179,5 +184,29 @@ describe("JobSearchSection", () => {
     vi.mocked(testJobSource).mockResolvedValue({ ok: false, error: "Something went wrong on the server. Please try again." });
     await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
     expect(await screen.findByText("Something went wrong on the server. Please try again.")).toBeInTheDocument();
+  });
+
+  it("saves how searches run and what's relevant (this fork)", async () => {
+    render(<JobSearchSection initial={off} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Chosen source, others if it fails" }));
+    expect(saveSearchPreferences).toHaveBeenCalledWith({ mode: "fallback" });
+
+    await userEvent.type(screen.getByLabelText("Add a target role"), "Staff Data Engineer{Enter}");
+    expect(saveSearchPreferences).toHaveBeenCalledWith({ targetRoles: ["Staff Data Engineer"] });
+    expect(await screen.findByText("Staff Data Engineer")).toBeInTheDocument();
+
+    const floor = screen.getByLabelText("Salary floor (₹ LPA)");
+    await userEvent.clear(floor);
+    await userEvent.type(floor, "45");
+    await userEvent.tab();
+    expect(saveSearchPreferences).toHaveBeenCalledWith({ salaryFloorLpa: 45 });
+
+    await userEvent.click(screen.getByRole("checkbox", { name: "Must be open to someone in India" }));
+    expect(saveSearchPreferences).toHaveBeenCalledWith({ requireIndia: false });
+  });
+
+  it("says which sources are resting after a failure", () => {
+    render(<JobSearchSection initial={{ ...off, resting: [{ source: "JSEARCH", message: "You've used up your JSearch searches for this month.", until: "2026-10-28T13:00:00Z" }] }} />);
+    expect(screen.getByRole("list", { name: "Resting sources" })).toHaveTextContent(/JSearch rests until .*: You've used up your JSearch searches/);
   });
 });

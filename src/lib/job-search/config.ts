@@ -7,6 +7,7 @@ import { loadSettings } from "@/lib/settings-data";
 
 import type { RequestContext, SourceCredentials } from "./adapter";
 import { JobSearchError, jobSearchError } from "./errors";
+import { sourceHealth } from "./health";
 import type { JobSource, JSearchHost } from "./search";
 import { ARBEITSAGENTUR_NOTE, SOURCE_INFO, type JobKeyState, type JobSearchSettingsView } from "./sources";
 
@@ -24,6 +25,12 @@ export type JobSearchConfig = {
   firecrawl: { key: string | null; keyState: JobKeyState };
   /** Companies no search ever shows a posting from (this fork, E14-8); see blocklist.ts. */
   blockedCompanies: readonly string[];
+  /** Every source with a key at once, or one after another only on failure (this fork). */
+  mode: "all" | "fallback";
+  /** Role titles to search for besides the keywords; relevance and Firecrawl's queries use them. */
+  targetRoles: readonly string[];
+  salaryFloorLpa: number;
+  requireIndia: boolean;
   /**
    * The Bundesagentur für Arbeit (#223): whether this server offers it, and
    * when its note was accepted. Its searches wait until then.
@@ -33,7 +40,18 @@ export type JobSearchConfig = {
 
 type SavedJobSettings = Pick<
   SettingsData,
-  "jobSource" | "jsearchKeyEnc" | "jsearchHost" | "adzunaAppId" | "adzunaKeyEnc" | "firecrawlKeyEnc" | "arbeitsagenturAcceptedAt" | "blockedCompanies"
+  | "jobSource"
+  | "jsearchKeyEnc"
+  | "jsearchHost"
+  | "adzunaAppId"
+  | "adzunaKeyEnc"
+  | "firecrawlKeyEnc"
+  | "arbeitsagenturAcceptedAt"
+  | "blockedCompanies"
+  | "jobSearchMode"
+  | "targetRoles"
+  | "salaryFloorLpa"
+  | "requireIndia"
 >;
 type JobEnv = Pick<
   Env,
@@ -86,6 +104,10 @@ export function resolveJobSearchConfig(saved: SavedJobSettings, source: JobEnv, 
     },
     firecrawl: keyOf(saved.firecrawlKeyEnc, source.DOSSIER_FIRECRAWL_KEY, secret),
     blockedCompanies: saved.blockedCompanies,
+    mode: saved.jobSearchMode,
+    targetRoles: saved.targetRoles,
+    salaryFloorLpa: saved.salaryFloorLpa,
+    requireIndia: saved.requireIndia,
     arbeitsagentur: { offered, acceptedAt: saved.arbeitsagenturAcceptedAt },
   };
 }
@@ -106,7 +128,10 @@ export function arbeitsagenturStartupNotice(config: JobSearchConfig): string | n
 }
 
 /** What Settings → Job search shows: the source and the keys' states, never the keys. */
-export function jobSearchView(config: JobSearchConfig): JobSearchSettingsView {
+export function jobSearchView(config: JobSearchConfig, now = new Date()): JobSearchSettingsView {
+  const resting = Object.entries(sourceHealth()).flatMap(([source, health]) =>
+    health?.until && Date.parse(health.until) > now.getTime() ? [{ source: source as JobSource, message: health.message, until: health.until }] : [],
+  );
   return {
     source: config.source ?? "OFF",
     jsearch: { host: config.jsearch.host, keyState: config.jsearch.keyState },
@@ -114,6 +139,8 @@ export function jobSearchView(config: JobSearchConfig): JobSearchSettingsView {
     firecrawl: { keyState: config.firecrawl.keyState },
     arbeitsagentur: config.arbeitsagentur,
     blockedCompanies: config.blockedCompanies,
+    preferences: { mode: config.mode, targetRoles: config.targetRoles, salaryFloorLpa: config.salaryFloorLpa, requireIndia: config.requireIndia },
+    ...(resting.length > 0 ? { resting } : {}),
   };
 }
 

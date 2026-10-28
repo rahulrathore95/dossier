@@ -12,7 +12,7 @@ import { scorePosting } from "@/lib/ai/tasks";
 import { compileBlocklist, isBlockedPosting } from "@/lib/job-search/blocklist";
 import { credentialsFor, loadJobSearchConfig } from "@/lib/job-search/config";
 import { JobSearchError } from "@/lib/job-search/errors";
-import { searchWithFallback } from "@/lib/job-search/find";
+import { searchAllSources, searchWithFallback } from "@/lib/job-search/find";
 import { postingKey, postingText, type FoundPosting, type SearchQuery } from "@/lib/job-search/search";
 import { startJob, type JobContext } from "@/lib/jobs/runner";
 import { logServerError } from "@/lib/log";
@@ -117,7 +117,12 @@ export async function runAgentScan({ manual }: { manual: boolean }, context: Job
   // The first page only: the agent never asks for a second. Falls back across every source with a key saved
   // (this fork, E14-9) if the chosen one can't answer, except the Bundesagentur für Arbeit, which the agent
   // never searches on its own (#223) whether it's chosen or not.
-  const answer = await searchWithFallback(config, config.source!, settings.agentQuery, null, { exclude: ["ARBEITSAGENTUR"] });
+  // Every source with a key at once when Settings says so (this fork), with the target roles added for Firecrawl's queries.
+  const query = config.targetRoles.length > 0 ? { ...settings.agentQuery, roles: [...config.targetRoles] } : settings.agentQuery;
+  const answer =
+    config.mode === "all"
+      ? await searchAllSources(config, config.source!, query, { exclude: ["ARBEITSAGENTUR"] })
+      : await searchWithFallback(config, config.source!, query, null, { exclude: ["ARBEITSAGENTUR"] });
   if (!answer.ok) return finish(stopped(answer.message));
   // Blocked companies (this fork, E14-8): the agent runs unattended, so a blocked employer must never reach a score or an auto-draft.
   const blocked = compileBlocklist(config.blockedCompanies);

@@ -2,7 +2,9 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 
 import { json, stubFetch } from "@/lib/ai/test-http";
 import { clearJobSearchCache } from "@/lib/job-search/cache";
+import { clearSourceHealth } from "@/lib/job-search/health";
 import { fullText } from "@/lib/job-search/find";
+import { plannedQueries } from "@/lib/job-search/queries";
 import { EMPTY_QUERY } from "@/lib/job-search/search";
 import { savePosting } from "@/lib/postings";
 import { encryptSecret, JOB_SOURCE_KEY } from "@/lib/secrets";
@@ -29,6 +31,7 @@ const firecrawlAnswer = (web: unknown[] = []) => json({ success: true, data: { w
 beforeEach(async () => {
   await resetDatabase(prisma());
   clearJobSearchCache();
+  clearSourceHealth();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -52,7 +55,32 @@ describe("runSearch", () => {
     expect(result).toEqual({ ok: true, id: expect.any(String) });
     expect(requests[0].headers.get("x-api-key")).toBe("ak_test");
     const kept = await prisma().postingSearch.findUniqueOrThrow({ where: { id: result.ok ? result.id : "" } });
-    expect(kept).toMatchObject({ source: "JSEARCH", query, found: 2, next: "cursor:CURSOR-PAGE-2" });
+    // Every source with a key is asked (this fork): only JSearch has one here, and its cursor is kept for Show more.
+    expect(kept).toMatchObject({ source: "JSEARCH", query, found: 2, next: 'multi:{"JSEARCH":"cursor:CURSOR-PAGE-2"}' });
+    expect(kept.report).toEqual([
+      { source: "JSEARCH", status: "ok", found: 2, message: "" },
+      { source: "ADZUNA", status: "not-configured", found: 0, message: "Add your Adzuna app ID and key in Settings → Job search first." },
+      { source: "FIRECRAWL", status: "not-configured", found: 0, message: "Add your Firecrawl key in Settings → Job search first." },
+      { source: "ARBEITSAGENTUR", status: "not-configured", found: 0, message: expect.stringContaining("I understand") },
+    ]);
+  });
+
+  it("asks every source with a key at once and keeps what each did (this fork)", async () => {
+    await useJSearch();
+    await addFirecrawlKey();
+    const requests = stubFetch((request) =>
+      request.url.hostname === "api.openwebninja.com" ? json({}, { status: 429 }) : firecrawlAnswer([{ url: "https://jobs.lever.co/acme/02b45afd-5a49-41b2-a244-b0ca76306692", title: "Designer" }]),
+    );
+    const result = await runSearch(query);
+    const kept = await prisma().postingSearch.findUniqueOrThrow({ where: { id: result.ok ? result.id : "" } });
+    expect(requests.filter((r) => r.url.hostname === "api.openwebninja.com")).toHaveLength(1);
+    expect(kept).toMatchObject({ source: "FIRECRAWL", found: 1 });
+    expect(kept.report).toEqual(
+      expect.arrayContaining([
+        { source: "JSEARCH", status: "failed", found: 0, message: expect.stringContaining("used up your JSearch searches") },
+        { source: "FIRECRAWL", status: "ok", found: 1, message: "" },
+      ]),
+    );
   });
 
   it("keeps nothing when the source says no", async () => {
@@ -73,6 +101,9 @@ describe("runSearch", () => {
 });
 
 describe("falling back across sources (this fork, E14-9)", () => {
+  // Fallback is a choice in Settings since searches ask every source at once (this fork).
+  beforeEach(() => saveSettings({ jobSearchMode: "fallback" }));
+
   it("moves on to the next source with a key saved when the chosen one is exhausted", async () => {
     await useJSearch();
     await addFirecrawlKey();
@@ -82,9 +113,9 @@ describe("falling back across sources (this fork, E14-9)", () => {
     const result = await runSearch(query);
     expect(result).toEqual({ ok: true, id: expect.any(String) });
     const kept = await prisma().postingSearch.findUniqueOrThrow({ where: { id: result.ok ? result.id : "" } });
-    // Firecrawl runs two searches per page (biased and open); JSearch was asked once, first.
+    // Firecrawl runs every planned query (queries.ts); JSearch was asked once, first.
     expect(requests.filter((r) => r.url.hostname === "api.openwebninja.com")).toHaveLength(1);
-    expect(requests.filter((r) => r.url.hostname === "api.firecrawl.dev")).toHaveLength(2);
+    expect(requests.filter((r) => r.url.hostname === "api.firecrawl.dev")).toHaveLength(plannedQueries(query).length);
     expect(kept.source).toBe("FIRECRAWL");
   });
 
@@ -126,7 +157,7 @@ describe("loadSearch", () => {
     const now = new Date();
     const search = await loadSearch(run.ok ? run.id : "", { now });
     expect(requests).toHaveLength(0);
-    expect(search).toMatchObject({ source: "JSEARCH", query, next: "cursor:CURSOR-PAGE-2", ranAt: expect.stringMatching(/^today at \d\d:\d\d$/) });
+    expect(search).toMatchObject({ source: "JSEARCH", query, next: 'multi:{"JSEARCH":"cursor:CURSOR-PAGE-2"}', ranAt: expect.stringMatching(/^today at \d\d:\d\d$/) });
     expect(search!.postings.map((posting) => [posting.title, posting.state.saved])).toEqual([
       ["Senior Product Designer, Payments", false],
       ["UX Researcher", false],
