@@ -46,6 +46,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/jobs">) {
       source={config.source}
       arbeitsagenturNote={config.source === "ARBEITSAGENTUR" && !config.arbeitsagentur.acceptedAt}
       scoreInClaude={scoreInClaude}
+      salaryFloorLpa={config.salaryFloorLpa}
       // Named here: the browser's ICU can name a few countries differently from the server's.
       countries={COUNTRIES}
       view={view}

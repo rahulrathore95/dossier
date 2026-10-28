@@ -40,10 +40,10 @@ import { appVersion } from "@/lib/version";
 // behind: they belong to the server or the mailbox, not the user's data.
 
 export const EXPORT_FORMAT = "dossier-export";
-/** Bump when the file's shape changes; imports refuse versions they don't know. 2 added Find jobs' postings and keys (E14-9), 3 projects (PRO-13) and the job agent (E16), 4 facts (PRO-14, APP-15), 5 publications (#218), the profile photo's theme and application options (#224) and Startups (#222). */
-export const EXPORT_SCHEMA_VERSION = 5;
+/** Bump when the file's shape changes; imports refuse versions they don't know. 2 added Find jobs' postings and keys (E14-9), 3 projects (PRO-13) and the job agent (E16), 4 facts (PRO-14, APP-15), 5 publications (#218), the profile photo's theme and application options (#224) and Startups (#222), 6 resume variants (this fork). */
+export const EXPORT_SCHEMA_VERSION = 6;
 /** The versions imports can read. */
-export const EXPORT_SCHEMA_VERSIONS: readonly number[] = [1, 2, 3, 4, 5];
+export const EXPORT_SCHEMA_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6];
 
 /** The setting that holds the encrypted API key, which only this server can read. */
 const API_KEY_SETTING = "apiKeyEnc";
@@ -148,6 +148,8 @@ const theme = z.object({
   updatedAt: date,
 });
 const keyValue = z.object({ key: text, value: text });
+/** A resume variant (this fork). */
+const variant = z.object({ id: text, name: text, positioning: text, focusSkills: z.unknown(), sort: int, createdAt: date, updatedAt: date });
 
 const statusEvent = z.object({
   id: text,
@@ -212,6 +214,8 @@ const application = z.object({
   showPhoto: z.boolean().nullable().optional(),
   /** The job agent's (E16); absent in older files, which hold only the user's own. */
   origin: z.enum(ApplicationOrigin).optional(),
+  /** The resume variant it was written from (this fork); absent in older files. */
+  variantId: text.nullable().optional(),
   agentScore: int.nullable().optional(),
   awaitingReview: z.boolean().optional(),
   archivedAt: optionalDate,
@@ -318,7 +322,7 @@ const postingSearch = z.object({
 /** An export file as read back (E10-6). */
 export const exportSchema = z.object({
   format: z.literal(EXPORT_FORMAT),
-  schemaVersion: z.literal([1, 2, 3, 4, 5]),
+  schemaVersion: z.literal([1, 2, 3, 4, 5, 6]),
   appVersion: text,
   exportedAt: date,
   profile: z.object({
@@ -351,6 +355,8 @@ export const exportSchema = z.object({
   /** Startups (#222), and hashes of the ones removed for good; absent in older files. */
   startups: z.array(startup).default([]),
   startupBlocks: z.array(z.object({ hash: text, createdAt: date })).default([]),
+  /** Resume variants (this fork); absent in files before version 6. Uploaded resume files are left out: they're the user's own copies already. */
+  variants: z.array(variant).default([]),
 });
 export type DossierExport = z.infer<typeof exportSchema>;
 
@@ -372,7 +378,7 @@ export async function buildExport(
   { includeApiKey = false, now = new Date() }: { includeApiKey?: boolean; now?: Date } = {},
 ): Promise<DossierExport> {
   return db.$transaction(async (tx) => {
-    const [fields, skills, languages, experience, projects, education, publications, references, facts, themes, settings, applications, postings, searches, agentCandidates, startups, startupBlocks] = await Promise.all([
+    const [fields, skills, languages, experience, projects, education, publications, references, facts, themes, settings, applications, postings, searches, agentCandidates, startups, startupBlocks, variants] = await Promise.all([
       tx.profileField.findMany({ select: { key: true, value: true }, orderBy: { key: "asc" } }),
       tx.skill.findMany({ select: { id: true, name: true, sort: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
       tx.language.findMany({ select: { id: true, name: true, level: true, sort: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
@@ -405,6 +411,7 @@ export async function buildExport(
       tx.agentCandidate.findMany({ orderBy: { createdAt: "asc" } }),
       tx.startup.findMany({ orderBy: { createdAt: "asc" } }),
       tx.startupBlock.findMany({ orderBy: { createdAt: "asc" } }),
+      tx.resumeVariant.findMany({ orderBy: [{ sort: "asc" }, { createdAt: "asc" }] }),
     ]);
 
     // Keys only when asked for, decrypted; one that's unreadable here too (DOSSIER_SECRET changed) has nothing to export.
@@ -451,6 +458,7 @@ export async function buildExport(
       agentCandidates,
       startups,
       startupBlocks,
+      variants,
     };
   });
 }

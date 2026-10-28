@@ -177,7 +177,7 @@ export function DocumentsSection({
         </Select>
         <Select
           label="Resume length"
-          hint="A tailored resume that runs longer is trimmed, oldest roles first, and I'll tell you what was cut."
+          hint="A tailored resume that runs longer leaves out what's least relevant to the job — the summary first, then whole bullets and projects, then roles — never shrinking the type. I'll tell you what was left out, and you can put it back."
           value={settings.pageLimit}
           onChange={(event) => change({ pageLimit: event.target.value as PageLimit })}
         >

@@ -8,6 +8,7 @@ import { SavedIndicator } from "@/components/saved-indicator";
 import { buttonClassName } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { factTexts, filledBasics, REQUIRED_BASICS, type EntryOrder, type ProfileData } from "@/lib/profile";
+import type { ResumeVariant } from "@/lib/resume-variants";
 
 import { BasicsSection } from "./basics-section";
 import { EducationSection } from "./education-section";
@@ -19,6 +20,7 @@ import { ReferencesSection } from "./references-section";
 import { TrackSaveContext, useSaveTracker } from "@/components/save-tracker";
 import { SkillsSection } from "./skills-section";
 import { StrengthMeter } from "./strength-meter";
+import { VariantsSection } from "./variants-section";
 import { SECTIONS, sectionHref, type SectionId } from "./sections";
 
 /**
@@ -28,8 +30,20 @@ import { SECTIONS, sectionHref, type SectionId } from "./sections";
 /** How experience, projects and education are ordered (E4-9), from Settings. */
 export type ProfileOrder = { experience: EntryOrder; projects: EntryOrder; education: EntryOrder };
 
-export function ProfileEditor({ initial, section, order }: { initial: ProfileData; section: SectionId; order: ProfileOrder }) {
+export function ProfileEditor({
+  initial,
+  section,
+  order,
+  variants: initialVariants = [],
+}: {
+  initial: ProfileData;
+  section: SectionId;
+  order: ProfileOrder;
+  /** Resume variants (this fork). */
+  variants?: readonly ResumeVariant[];
+}) {
   const [profile, setProfile] = useState(initial);
+  const [variants, setVariants] = useState(initialVariants);
   const saves = useSaveTracker();
 
   const index = SECTIONS.findIndex((entry) => entry.id === section);
@@ -46,6 +60,7 @@ export function ProfileEditor({ initial, section, order }: { initial: ProfileDat
     publications: String(profile.publications.length),
     references: String(profile.references.length),
     facts: String(factTexts(profile.facts).length),
+    variants: String(variants.length),
   };
 
   const body: Record<SectionId, ReactNode> = {
@@ -64,6 +79,7 @@ export function ProfileEditor({ initial, section, order }: { initial: ProfileDat
     publications: <PublicationsSection profile={profile} update={setProfile} />,
     references: <ReferencesSection profile={profile} update={setProfile} />,
     facts: <FactsSection profile={profile} update={setProfile} />,
+    variants: <VariantsSection profile={profile} variants={variants} setVariants={setVariants} />,
   };
 
   return (

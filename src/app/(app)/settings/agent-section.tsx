@@ -14,12 +14,16 @@ import { searchHref, type JobSource, type SearchQuery } from "@/lib/job-search/s
 
 import { saveAgentSettings } from "../agent/actions";
 import { RemoteOnlyField, SearchFields, type SearchFieldErrors } from "../jobs/search-fields";
+import { runHours } from "@/lib/agent/run-hours";
+
 import { SettingsSectionIntro } from "./settings-screen";
 
 export type AgentSettings = {
   enabled: boolean;
   query: SearchQuery;
   hour: number;
+  /** Runs a day (this fork): 1 to 3; absent means once. */
+  runsPerDay?: number;
   minScore: number;
   maxScores: number;
   maxDrafts: number;
@@ -114,7 +118,7 @@ export function AgentSection({
           label="Run the job agent"
           description={
             settings.enabled
-              ? `On. It runs once a day after ${clock(settings.hour)} your time (${timeZone}), and you can run it now and then on the Agent screen.`
+              ? `On. It runs ${(settings.runsPerDay ?? 1) === 1 ? `once a day after ${clock(settings.hour)}` : `${settings.runsPerDay} times a day, at ${runHours(settings.hour, settings.runsPerDay ?? 1).map(clock).join(", ")}`} your time (${timeZone}), and you can run it now and then on the Agent screen.`
               : "Off. Nothing is searched or scored until it's on."
           }
           checked={settings.enabled}
@@ -148,6 +152,16 @@ export function AgentSection({
               {clock(hour)}
             </option>
           ))}
+        </Select>
+        <Select
+          label="Runs a day"
+          hint="Evenly spread from the first run; one search per run."
+          value={String(settings.runsPerDay ?? 1)}
+          onChange={(event) => change({ runsPerDay: Number(event.target.value) })}
+        >
+          <option value="1">Once</option>
+          <option value="2">Twice</option>
+          <option value="3">Three times</option>
         </Select>
         <Select
           label="Minimum score"
@@ -195,7 +209,7 @@ export function AgentSection({
       </Card>
 
       <p className="text-meta text-muted">
-        One search a day, and at most three in any 24 hours. Each run scores up to {plural(settings.maxScores, "posting", "postings")}
+        {(settings.runsPerDay ?? 1) === 1 ? "One search a day" : `${settings.runsPerDay} searches a day`}, and at most three in any 24 hours. Each run scores up to {plural(settings.maxScores, "posting", "postings")}
         {settings.autoDraft ? ` and prepares up to ${plural(settings.maxDrafts, "draft", "drafts")}` : ""}. Scoring and drafts go to your AI provider with your profile, as a new application does; the job source only gets the search.
       </p>
     </>

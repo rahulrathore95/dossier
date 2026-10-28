@@ -10,6 +10,7 @@ import { seedBuiltIns } from "../../../../prisma/seed/built-ins";
 import { json, stubFetch } from "@/lib/ai/test-http";
 import { decryptSecret, JOB_SOURCE_KEY } from "@/lib/secrets";
 import { clearJobSearchCache } from "@/lib/job-search/cache";
+import { clearSourceHealth } from "@/lib/job-search/health";
 import { jsearchV2LastPage } from "@/test/job-search-fixtures";
 
 import {
@@ -25,6 +26,7 @@ import {
   testAiConnection,
   testJobSource,
   updateSettings,
+  saveSearchPreferences,
 } from "./actions";
 
 // The actions run against the test database, signed in.
@@ -151,6 +153,16 @@ describe("addDocumentLanguage (E10-3)", () => {
 });
 
 describe("job search settings (E14-4)", () => {
+  it("saves how searches run and what's relevant (this fork), without repeats", async () => {
+    expect(await saveSearchPreferences({ mode: "fallback", targetRoles: ["Staff Data Engineer", "Staff Data Engineer"], salaryFloorLpa: 45, requireIndia: false })).toEqual({
+      ok: true,
+      data: { mode: "fallback", targetRoles: ["Staff Data Engineer"], salaryFloorLpa: 45, requireIndia: false },
+    });
+    expect(await saveSearchPreferences({ salaryFloorLpa: -1 })).toMatchObject({ ok: false });
+    expect(await saveSearchPreferences({ targetRoles: ["a", "b", "c", "d", "e", "f", "g"] })).toMatchObject({ ok: false });
+    expect((await loadSettings()).salaryFloorLpa).toBe(45);
+  });
+
   it("saves the source, Off included, and says what the section shows", async () => {
     expect(await saveJobSource({ source: "JSEARCH" })).toEqual({
       ok: true,
@@ -161,6 +173,7 @@ describe("job search settings (E14-4)", () => {
         firecrawl: { keyState: "none" },
         arbeitsagentur: { offered: true, acceptedAt: null },
         blockedCompanies: [],
+        preferences: { mode: "all", targetRoles: [], salaryFloorLpa: 40, requireIndia: true },
       },
     });
     await saveJobSource({ source: "OFF" });
@@ -212,6 +225,7 @@ describe("job search settings (E14-4)", () => {
 
   it("tests the chosen source with its key", async () => {
     clearJobSearchCache();
+    clearSourceHealth();
     expect(await testJobSource({})).toEqual({ ok: true, data: { connected: false, message: "Choose a source first." } });
 
     await saveJobSource({ source: "JSEARCH" });

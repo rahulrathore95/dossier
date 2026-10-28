@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { demoProfile } from "@/lib/demo-profile";
+import { clearSourceHealth } from "@/lib/job-search/health";
 import type { FoundPosting, SearchQuery } from "@/lib/job-search/search";
 import type { JobContext } from "@/lib/jobs/runner";
 import { sweepFinishedJobs } from "@/lib/jobs/retention";
@@ -52,6 +53,10 @@ vi.mock("@/lib/job-search/config", () => ({
     source: fake.source,
     saved: true,
     blockedCompanies: fake.blockedCompanies,
+    mode: "fallback",
+    targetRoles: [],
+    salaryFloorLpa: 40,
+    requireIndia: true,
     jsearch: { key: "jsearch-key", host: "openwebninja", keyState: "set" },
     adzuna: { appId: "app", key: "adzuna-key", keyState: "set" },
   }),
@@ -106,8 +111,10 @@ const context = (abort?: AbortController): JobContext & { steps: string[] } => {
 
 beforeEach(async () => {
   await resetDatabase(prisma());
+  clearSourceHealth();
   Object.assign(fake, { postings: page, searches: 0, source: "JSEARCH", ai: true, failOn: null, onScore: () => {}, blockedCompanies: [] });
-  await saveSettings({ agentEnabled: true, agentQuery: query });
+  // Relevance (this fork) is tested on its own below: here every posting is a target role, and India isn't required.
+  await saveSettings({ agentEnabled: true, agentQuery: query, requireIndia: false, targetRoles: ["Product Designer", "Office Manager"] });
 });
 afterAll(() => prisma().$disconnect());
 
@@ -261,4 +268,29 @@ describe("runAgentScan (E16-3)", () => {
     expect((await runAgentScan({ manual: false }, context(), now)).message).toBe("Scored 1 new posting; none reached your minimum score of 70.");
     expect(demoProfile().basics.name).toBe("Jane Doe");
   });
+
+  it("leaves out what relevance rules out before any AI call, and scores the most relevant first (this fork)", async () => {
+    await saveSettings({ requireIndia: true, targetRoles: [] });
+    fake.postings = [
+      posting("in", "Senior Product Designer (India)", "2026-10-19T00:00:00Z", { place: "Bengaluru" }),
+      posting("us", "Senior Product Designer - Remote - US", "2026-10-19T12:00:00Z", { place: "" }),
+      posting("sales", "Sales Development Representative", "2026-10-19T12:00:00Z", { place: "Pune" }),
+    ];
+    const scoredTitles: string[] = [];
+    fake.onScore = (title) => void scoredTitles.push(title);
+    const result = await runAgentScan({ manual: false }, context(), now);
+    expect(scoredTitles).toEqual(["Senior Product Designer (India)"]);
+    expect(result).toMatchObject({ found: 3, fresh: 1, scored: 1, skipped: 2, message: "1 new posting is waiting for a look. 2 left out as not eligible or unrelated." });
+  });
+
+  it("says which source failed, so a short run isn't mistaken for all there was (this fork)", async () => {
+    const { searchPostings } = await import("@/lib/job-search");
+    vi.mocked(searchPostings).mockImplementationOnce(async () => {
+      const { jobSearchError } = await import("@/lib/job-search/errors");
+      throw jobSearchError("quota", "JSEARCH");
+    });
+    const result = await runAgentScan({ manual: false }, context(), now);
+    expect(result.message).toMatch(/JSearch: You've used up your JSearch searches/);
+  });
 });
+

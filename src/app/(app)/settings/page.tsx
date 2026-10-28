@@ -59,6 +59,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
             // With no search of its own yet, it starts from the last one in Find jobs.
             query: settings.agentQuery.keywords.trim() ? settings.agentQuery : ((await loadSearch())?.query ?? settings.agentQuery),
             hour: settings.agentHour,
+            runsPerDay: settings.agentRunsPerDay,
             minScore: settings.agentMinScore,
             maxScores: settings.agentMaxScores,
             maxDrafts: settings.agentMaxDrafts,

@@ -59,6 +59,13 @@ export const SECTIONS = [
     title: "Facts about me",
     hint: "What the AI should know about you that the rest of your profile doesn't say. It reads these when it writes your resumes and cover letters, and never copies them onto a resume as a list.",
   },
+  {
+    id: "variants",
+    optional: true,
+    label: "Resume variants",
+    title: "Resume variants",
+    hint: "Ways to position the same experience for different kinds of jobs, e.g. GCP Senior Data Engineer or Azure Senior Data Engineer. Each application uses the one its posting fits best, unless you choose another. A variant changes emphasis only: every fact still comes from this profile.",
+  },
 ] as const;
 
 export type SectionId = (typeof SECTIONS)[number]["id"];

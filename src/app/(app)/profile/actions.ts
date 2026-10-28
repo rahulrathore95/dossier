@@ -14,6 +14,8 @@ import { isPhotoDataUrl, PHOTO_KEY, PHOTO_MAX_LENGTH, PHOTO_ON_RESUMES_KEY } fro
 import { loadProfileName } from "@/lib/profile-data";
 import { importCounts } from "@/lib/profile-import";
 import { applyImportedProfile } from "@/lib/profile-import-apply";
+import { variantInputSchema } from "@/lib/resume-variants";
+import { createVariant, deleteVariant, updateVariant } from "@/lib/resume-variants-data";
 import { loadSettings, saveSettings } from "@/lib/settings-data";
 
 // Every profile change saves through these actions; they all check the
@@ -526,3 +528,29 @@ export const restoreReference = action(referenceFields, async (entry) =>
     }),
   ),
 );
+
+// ─── Resume variants (this fork) ─────────────────────────────────────────────
+
+/** Adds a resume variant; its focus skills must be the profile's own. */
+export const addVariant = action(variantInputSchema, async (input) => {
+  await checkFocusSkills(input.focusSkills);
+  return createVariant(input);
+});
+
+export const saveVariant = action(variantInputSchema.extend({ id }), async ({ id, ...input }) => {
+  await checkFocusSkills(input.focusSkills);
+  return updateVariant(id, input);
+});
+
+export const removeVariant = action(z.object({ id }), async ({ id }) => {
+  await deleteVariant(id);
+  return null;
+});
+
+/** A variant may only lead with skills the profile has: it sets emphasis, it never adds a claim. */
+async function checkFocusSkills(names: readonly string[]) {
+  // Skill names are citext: "gcp" finds "GCP".
+  const known = await prisma.skill.findMany({ where: { name: { in: [...names] } }, select: { name: true } });
+  const missing = names.filter((name) => !known.some((skill) => skill.name.toLowerCase() === name.toLowerCase()));
+  if (missing.length > 0) throw new ActionError(`Add ${missing.join(", ")} to your skills first: a variant can only lead with skills your profile has.`);
+}

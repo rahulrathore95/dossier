@@ -72,7 +72,7 @@ describe("Documents settings (E10-3)", () => {
     const select = screen.getByLabelText("Resume length") as HTMLSelectElement;
     expect([...select.options].map((option) => option.text)).toEqual(["One page", "Up to two pages", "No limit"]);
     expect(select).toHaveAccessibleDescription(
-      "A tailored resume that runs longer is trimmed, oldest roles first, and I'll tell you what was cut.",
+      "A tailored resume that runs longer leaves out what's least relevant to the job — the summary first, then whole bullets and projects, then roles — never shrinking the type. I'll tell you what was left out, and you can put it back.",
     );
     await user.selectOptions(select, "Up to two pages");
     expect(updateSettings).toHaveBeenLastCalledWith({ pageLimit: "2" });

@@ -17,10 +17,11 @@ export function useStartApplication() {
   const router = useRouter();
   const [starting, setStarting] = useState<string | null>(null);
 
-  const start = async (posting: FoundPosting, key: string) => {
+  /** `again`: another version for a job that already has an application (this fork). */
+  const start = async (posting: FoundPosting, key: string, { again = false }: { again?: boolean } = {}) => {
     if (starting) return;
     setStarting(key);
-    const result = toastResult(await startApplicationFrom({ posting }));
+    const result = toastResult(await startApplicationFrom({ posting, ...(again ? { again } : {}) }));
     if (!result.ok) {
       setStarting(null);
       return;

@@ -16,6 +16,7 @@ import { postedAgo, postingKey, type FoundPosting, type PostingState, type Shown
 import { arbeitsagenturPage, SOURCE_INFO } from "@/lib/job-search/sources";
 
 import { dismissFoundPosting, loadFullText, restorePosting, savePostingForLater, showMorePostings, startScoringPosting, unsavePosting } from "./actions";
+import { NO_FILTER, passes, RelevanceChips, RelevanceDetail, RelevancePill, ResultFilters, SourceReportNote, type ResultFilter } from "./relevance-parts";
 import { useStartApplication } from "./use-start-application";
 
 /** Narrow windows show the posting above the list. */
@@ -25,6 +26,8 @@ export type PostingResultsProps = {
   today: string;
   /** Score opens a Claude chat, which scores through the connector: it's on, and Dossier has no AI model of its own (#221). */
   scoreInClaude?: boolean;
+  /** The salary floor in Settings → Job search, for the salary filter (this fork). */
+  salaryFloorLpa?: number;
 } & (
   | {
       mode: "search";
@@ -51,13 +54,18 @@ export function PostingResults(props: PostingResultsProps) {
   const [next, setNext] = useState(mode === "search" ? props.search.next : null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
+  // Filters over the results (this fork); relevance's exclusions are hidden until asked for.
+  const [filter, setFilter] = useState<ResultFilter>(NO_FILTER);
+  const floorLpa = props.salaryFloorLpa ?? 40;
+  const now = new Date(props.today);
   const inView = ({ state }: ShownPosting) => (mode === "saved" ? state.saved : mode === "dismissed" ? state.dismissed : showDismissed || !state.dismissed);
-  const visible = postings.filter(inView);
+  const visible = postings.filter((posting) => inView(posting) && (mode !== "search" || passes(posting, filter, floorLpa, now)));
+  const excluded = mode === "search" ? postings.filter((posting) => inView(posting) && posting.relevance?.excluded).length : 0;
+  const sources = [...new Set(postings.map((posting) => posting.source))];
   const hidden = mode === "search" ? postings.filter((posting) => posting.state.dismissed).length : 0;
   const [selectedKey, setSelectedKey] = useState(visible[0] ? postingKey(visible[0]) : null);
   const selected = visible.find((posting) => postingKey(posting) === selectedKey) ?? visible[0] ?? null;
   const detail = useRef<HTMLElement>(null);
-  const now = new Date(props.today);
   const { starting, start } = useStartApplication();
   // Postings being scored (#208), with the step under way, by postingKey.
   const [scoring, setScoring] = useState<Record<string, { jobId: string; step: string | null }>>({});
@@ -163,7 +171,9 @@ export function PostingResults(props: PostingResultsProps) {
       : mode === "dismissed"
         ? "Nothing dismissed. Postings you dismiss stay out of your searches and wait here."
         : postings.length > 0 || !searched
-          ? "You've dismissed every posting here."
+          ? postings.some(inView)
+            ? "No posting here passes these filters. Loosen them, or show the ones left out."
+            : "You've dismissed every posting here."
           : `No postings for “${searched.keywords}”${searched.place ? ` within ${searched.radiusKm} km of ${searched.place}` : ""}. Try a bigger radius or fewer words.`;
 
   return (
@@ -175,7 +185,7 @@ export function PostingResults(props: PostingResultsProps) {
         <p className={cn("flex flex-wrap items-baseline gap-x-3 gap-y-1 text-meta text-muted", mode !== "search" && visible.length === 0 && "hidden")}>
           <span>
             {props.mode === "search"
-              ? `${plural(postings.length, "posting", "postings")} from ${SOURCE_INFO[props.search.source].name}${next ? ", more to come" : ""} · searched ${props.search.ranAt}`
+              ? `${plural(postings.length, "posting", "postings")} from ${sources.length > 1 ? `${sources.length} sources` : SOURCE_INFO[props.search.source].name}${visible.length < postings.length ? `, ${visible.length} shown` : ""}${next ? ", more to come" : ""} · searched ${props.search.ranAt}`
               : mode === "saved"
                 ? plural(visible.length, "saved posting", "saved postings")
                 : `${plural(visible.length, "dismissed posting", "dismissed postings")}, kept out of your searches`}
@@ -201,6 +211,11 @@ export function PostingResults(props: PostingResultsProps) {
             </button>
           )}
         </p>
+
+        {props.mode === "search" && <SourceReportNote report={props.search.report} />}
+        {props.mode === "search" && postings.length > 0 && (
+          <ResultFilters filter={filter} onChange={setFilter} sources={sources} floorLpa={floorLpa} excluded={excluded} />
+        )}
 
         {visible.length === 0 ? (
           <div className="rounded-panel border border-line-card bg-card px-5 py-9 text-center text-sm text-muted">{empty}</div>
@@ -235,9 +250,24 @@ export function PostingResults(props: PostingResultsProps) {
           scoring={scoring[postingKey(selected)] ?? null}
           onScore={() => void score(selected)}
         >
-          {!selected.state.dismissed && (
-            <StartButton starting={starting === postingKey(selected)} onClick={() => void start(withoutState(selected), postingKey(selected))} />
-          )}
+          {!selected.state.dismissed &&
+            (selected.state.applicationId ? (
+              // Already applied: no second draft by accident (this fork), but another version on purpose.
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-disabled={starting === postingKey(selected) || undefined}
+                onClick={() => {
+                  if (window.confirm("You already have an application for this job. Write another version anyway?")) {
+                    void start(withoutState(selected), postingKey(selected), { again: true });
+                  }
+                }}
+              >
+                Write another version
+              </Button>
+            ) : (
+              <StartButton starting={starting === postingKey(selected)} onClick={() => void start(withoutState(selected), postingKey(selected))} />
+            ))}
         </PostingDetail>
       )}
     </div>
@@ -266,11 +296,18 @@ export function StartButton({ starting, onClick }: { starting: boolean; onClick:
   );
 }
 
-/** The posting as the server takes it back: without where it stands. */
+/** The posting as the server takes it back: without where it stands, or its relevance. */
 function withoutState(posting: ShownPosting): FoundPosting {
-  const { state, ...found } = posting;
+  const { state, relevance, ...found } = posting;
   void state;
+  void relevance;
   return found;
+}
+
+/** "seen by a search 2 days ago": a search engine's date for the page, never shown as the posting date (this fork). */
+function seenAgo(indexedAt: string | null | undefined, now: Date): string {
+  const ago = postedAgo(indexedAt ?? null, now);
+  return ago ? `page seen by search ${ago === "Today" || ago === "Yesterday" ? ago.toLowerCase() : ago}, posting date not given` : "";
 }
 
 /** The Score pill on an unscored posting in the list, and the room the card keeps for it. */
@@ -328,6 +365,7 @@ function PostingList({
                 <span className="text-field font-medium text-pretty">{title}</span>
                 <span className="flex shrink-0 items-center gap-1.5">
                   <StateBadges state={posting.state} />
+                  {posting.relevance && <RelevancePill relevance={posting.relevance} />}
                   {posting.state.score ? (
                     <ScoreBadge score={posting.state.score.score} size="sm" />
                   ) : (
@@ -338,9 +376,10 @@ function PostingList({
                 </span>
               </span>
               <span className="text-meta text-muted">{[posting.company, posting.place, posting.remote ? "Remote" : ""].filter(Boolean).join(" · ")}</span>
+              {posting.relevance && <RelevanceChips relevance={posting.relevance} />}
               <span className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate text-xs text-muted">
-                  {[postedAgo(posting.postedAt, now), posting.via && `via ${posting.via}`, posting.salary].filter(Boolean).join(" · ")}
+                  {[postedAgo(posting.postedAt, now) || seenAgo(posting.indexedAt, now), posting.via && `via ${posting.via}`, posting.salary].filter(Boolean).join(" · ")}
                 </span>
                 <SourceAttribution source={posting.source} url={posting.url} placeholder />
               </span>
@@ -482,8 +521,12 @@ function PostingDetail({
           {posting.title || "Untitled posting"}
         </h2>
         <p className="text-sm text-muted">{[posting.company, posting.place, posting.remote ? "Remote" : "", posting.salary].filter(Boolean).join(" · ")}</p>
-        {(ago || posting.via) && (
-          <p className="text-meta text-muted">{[ago && `Posted ${ago === "Today" || ago === "Yesterday" ? ago.toLowerCase() : ago}`, posting.via && `via ${posting.via}`].filter(Boolean).join(" · ")}</p>
+        {(ago || posting.via || posting.indexedAt) && (
+          <p className="text-meta text-muted">
+            {[ago ? `Posted ${ago === "Today" || ago === "Yesterday" ? ago.toLowerCase() : ago}` : seenAgo(posting.indexedAt, now), posting.via && `via ${posting.via}`]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
         )}
       </div>
 
@@ -529,6 +572,8 @@ function PostingDetail({
           </Button>
         )}
       </div>
+
+      {posting.relevance && <RelevanceDetail relevance={posting.relevance} />}
 
       {scoring ? (
         <p role="status" className="text-meta text-muted">

@@ -79,7 +79,9 @@ describe("an application written in Claude chat (#221)", () => {
     expect(units.find((unit) => unit.id === `experience:${role.id}`)?.text).toBe("Led the redesign of the payments flow");
     // Only the profile's own roles and skills, and its publications word for word.
     expect(units.some((unit) => unit.id === "experience:made-up")).toBe(false);
-    expect(units.find((unit) => unit.id === "skills")?.text).toBe(profile.skills[0].name);
+    // The whole skills section, the chosen one first (this fork), and never a skill the profile doesn't have.
+    expect(units.find((unit) => unit.id === "skills")?.text).toBe(profile.skills.map((skill) => skill.name).join(" · "));
+    expect(units.find((unit) => unit.id === "skills")?.text).not.toContain("Not a skill of theirs");
     const shown = profile.publications.filter((entry) => entry.onResumes);
     expect(units.filter((unit) => unit.id.startsWith("publication:")).map((unit) => unit.text)).toEqual(shown.map((entry) => entry.citation));
 

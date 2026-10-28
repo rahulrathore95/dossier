@@ -77,7 +77,7 @@ const jsonList = (value: unknown) => (Array.isArray(value) ? value : []) as Pris
  * install's own settings (the usage ping's) stay as they are.
  */
 export async function importExport(db: PrismaClient, data: DossierExport): Promise<void> {
-  const { profile, themes, settings, applications, postings, searches, agentCandidates, startups, startupBlocks, apiKey, jobSourceKeys } = data;
+  const { profile, themes, settings, applications, postings, searches, agentCandidates, startups, startupBlocks, variants, apiKey, jobSourceKeys } = data;
   const fromFile: Record<string, string | null> = {
     apiKeyEnc: apiKey ? encryptApiKey(apiKey) : null,
     jsearchKeyEnc: jobSourceKeys?.jsearch ? encryptSecret(JOB_SOURCE_KEY, jobSourceKeys.jsearch) : null,
@@ -111,6 +111,7 @@ export async function importExport(db: PrismaClient, data: DossierExport): Promi
         tx.publication.deleteMany(),
         tx.reference.deleteMany(),
         tx.fact.deleteMany(),
+        tx.resumeVariant.deleteMany(),
         tx.theme.deleteMany({ where: { builtIn: false } }),
         tx.setting.deleteMany({ where: { key: { notIn: keptKeys } } }),
       ]);
@@ -133,6 +134,7 @@ export async function importExport(db: PrismaClient, data: DossierExport): Promi
       await tx.publication.createMany({ data: profile.publications });
       await tx.reference.createMany({ data: profile.references });
       await tx.fact.createMany({ data: profile.facts });
+      await tx.resumeVariant.createMany({ data: variants.map((entry) => ({ ...entry, focusSkills: (entry.focusSkills ?? []) as Prisma.InputJsonValue })) });
       await tx.theme.createMany({ data: themes.map((theme) => ({ ...theme, builtIn: false })) });
       await tx.setting.createMany({ data: settings.filter((setting) => !SECRET_SETTINGS.includes(setting.key) && !INSTALL_SETTINGS.includes(setting.key)) });
       for (const [key, value] of Object.entries(fromFile)) if (value) await tx.setting.create({ data: { key, value } });

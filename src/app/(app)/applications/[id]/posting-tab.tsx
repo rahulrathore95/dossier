@@ -6,6 +6,7 @@ import { useId } from "react";
 import { FactList } from "@/components/fact-list";
 import { MatchRows } from "@/components/match-rows";
 import type { Match, Requirement } from "@/lib/application-data";
+import type { JobFacts } from "@/lib/job-facts";
 import type { FactItem } from "@/lib/profile";
 
 import { sectionHref } from "../../profile/sections";
@@ -17,6 +18,8 @@ export type PostingData = {
   url: string;
   /** When it was pasted, e.g. "27 Sep". */
   pasted: string;
+  /** What's known about the job itself (this fork): where it was found, when, and how it fits. */
+  about?: JobFacts | null;
 };
 
 /** "jobs.ledgerly.com/senior-designer" for a link, without the scheme. */
@@ -78,6 +81,7 @@ export function PostingTab({
           placeholder="e.g. I met their design lead at Config last year. Or: lean on my research work."
         />
       </section>
+      {posting.about && <AboutJob about={posting.about} />}
       <div className="flex w-full max-w-[640px] flex-wrap justify-between gap-x-3 gap-y-1 text-meta text-muted">
         <span className="min-w-0">
           Job posting
@@ -111,5 +115,48 @@ export function PostingTab({
         </div>
       </div>
     </div>
+  );
+}
+
+/** "About this job" (this fork): source, dates, where it can be done from, pay and relevance, as facts rather than a pitch. */
+function AboutJob({ about }: { about: JobFacts }) {
+  const headingId = useId();
+  const rows: [string, string][] = [
+    ["Found", [about.found, about.discovered].filter(Boolean).join(" · ")],
+    ["Posted", about.posted],
+    ["Apply", about.link],
+    ["Location", about.where],
+    ["Salary", about.salary],
+    ...(about.variant ? [["Resume variant", about.variant] as [string, string]] : []),
+  ];
+  return (
+    <section aria-labelledby={headingId} className="flex w-full max-w-[640px] flex-col gap-3 rounded-panel border border-line-card bg-card px-[30px] py-6 text-sm">
+      <h2 id={headingId} className="flex items-baseline justify-between text-[15px] font-medium">
+        About this job
+        <span className="text-meta font-normal text-muted">Relevance {about.relevance.score} of 100</span>
+      </h2>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-5 gap-y-1.5">
+        {rows.map(([term, value]) => (
+          <div key={term} className="contents">
+            <dt className="text-muted">{term}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {about.relevance.reasons.length > 0 && (
+        <ul aria-label="Why it's relevant" className="flex list-disc flex-col gap-0.5 pl-5 text-meta text-muted">
+          {about.relevance.reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      )}
+      {about.relevance.concerns.length > 0 && (
+        <ul aria-label="What counts against it" className="flex list-disc flex-col gap-0.5 pl-5 text-meta text-warning">
+          {about.relevance.concerns.map((concern) => (
+            <li key={concern}>{concern}</li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

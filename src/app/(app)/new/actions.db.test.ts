@@ -224,7 +224,7 @@ describe("createApplication", () => {
     trim.result = { trimmed: [], fits: true };
   });
 
-  it("trims to two pages unless another limit was chosen (SET-9)", async () => {
+  it("trims to one page unless another limit was chosen (SET-9, this fork)", async () => {
     const { fitResumeToPages } = await import("@/lib/page-limit");
     vi.mocked(fitResumeToPages).mockClear();
     await finishedJobs();
@@ -234,9 +234,9 @@ describe("createApplication", () => {
     };
     const result = await createApplication({ writeJobId: "write-job", details, postingUrl: "" });
     const id = result.ok ? result.data : "";
-    expect(fitResumeToPages).toHaveBeenCalledWith(id, expect.anything(), 2);
+    expect(fitResumeToPages).toHaveBeenCalledWith(id, expect.anything(), 1);
     const [message] = await prisma().chatMessage.findMany({ where: { applicationId: id } });
-    expect(message.text).toMatch(/- Left out Studio Brik \(2015–2018\) to fit two pages/);
+    expect(message.text).toMatch(/- Left out Studio Brik \(2015–2018\) to fit one page/);
     trim.result = { trimmed: [], fits: true };
   });
 

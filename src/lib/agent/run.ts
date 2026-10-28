@@ -12,8 +12,10 @@ import { scorePosting } from "@/lib/ai/tasks";
 import { compileBlocklist, isBlockedPosting } from "@/lib/job-search/blocklist";
 import { credentialsFor, loadJobSearchConfig } from "@/lib/job-search/config";
 import { JobSearchError } from "@/lib/job-search/errors";
-import { searchWithFallback } from "@/lib/job-search/find";
+import { searchAllSources, searchWithFallback } from "@/lib/job-search/find";
+import { withRelevance } from "@/lib/job-search/relevance-profile";
 import { postingKey, postingText, type FoundPosting, type SearchQuery } from "@/lib/job-search/search";
+import { SOURCE_INFO } from "@/lib/job-search/sources";
 import { startJob, type JobContext } from "@/lib/jobs/runner";
 import { logServerError } from "@/lib/log";
 import { saveScore } from "@/lib/posting-scores";
@@ -117,17 +119,34 @@ export async function runAgentScan({ manual }: { manual: boolean }, context: Job
   // The first page only: the agent never asks for a second. Falls back across every source with a key saved
   // (this fork, E14-9) if the chosen one can't answer, except the Bundesagentur für Arbeit, which the agent
   // never searches on its own (#223) whether it's chosen or not.
-  const answer = await searchWithFallback(config, config.source!, settings.agentQuery, null, { exclude: ["ARBEITSAGENTUR"] });
+  // Every source with a key at once when Settings says so (this fork), with the target roles added for Firecrawl's queries.
+  const query = config.targetRoles.length > 0 ? { ...settings.agentQuery, roles: [...config.targetRoles] } : settings.agentQuery;
+  const answer =
+    config.mode === "all"
+      ? await searchAllSources(config, config.source!, query, { exclude: ["ARBEITSAGENTUR"] })
+      : await searchWithFallback(config, config.source!, query, null, { exclude: ["ARBEITSAGENTUR"] });
   if (!answer.ok) return finish(stopped(answer.message));
   // Blocked companies (this fork, E14-8): the agent runs unattended, so a blocked employer must never reach a score or an auto-draft.
   const blocked = compileBlocklist(config.blockedCompanies);
   const postings: FoundPosting[] = answer.postings.filter((posting) => !isBlockedPosting(posting, blocked));
 
-  const fresh = await newPostings(postings);
-  const counts = { found: postings.length, fresh: fresh.length, skipped: postings.length - fresh.length, drafted: 0 };
-  if (fresh.length === 0) return finish({ ...counts, scored: 0, message: postings.length === 0 ? "The search found no postings this time." : "No new postings this time." });
+  // What each source did, when one failed or rested (this fork): a short run is never mistaken for all there was.
+  const trouble = (answer.report ?? []).filter((entry) => entry.status === "failed" || entry.status === "resting");
+  const troubleText = trouble.length > 0 ? ` ${trouble.map((entry) => `${SOURCE_INFO[entry.source].name}: ${entry.message}`).join(" ")}` : "";
 
-  const toScore = fresh.toSorted(newestFirst).slice(0, settings.agentMaxScores);
+  const unseen = await newPostings(postings);
+  // Relevance to the master resume (this fork, relevance.ts): what its own words put outside India, below the
+  // salary floor or unrelated is left out before any AI call; the rest is scored most relevant first.
+  const measured = await withRelevance(unseen, settings.agentQuery);
+  const fresh = measured.filter((posting) => !posting.relevance.excluded);
+  const ineligible = measured.length - fresh.length;
+  const counts = { found: postings.length, fresh: fresh.length, skipped: postings.length - fresh.length, drafted: 0 };
+  if (fresh.length === 0) {
+    const why = postings.length === 0 ? "The search found no postings this time." : ineligible > 0 ? `No new postings fit this time; ${ineligible} left out as not eligible or unrelated.` : "No new postings this time.";
+    return finish({ ...counts, scored: 0, message: `${why}${troubleText}` });
+  }
+
+  const toScore = fresh.toSorted((a, b) => b.relevance.score - a.relevance.score || newestFirst(a, b)).slice(0, settings.agentMaxScores);
   await context.step(`Scoring ${toScore.length} ${toScore.length === 1 ? "posting" : "postings"}`);
   const [provider, options, profile] = await Promise.all([getAiProvider(), loadTaskOptions(), loadProfile()]);
   let scored = 0;
@@ -170,7 +189,7 @@ export async function runAgentScan({ manual }: { manual: boolean }, context: Job
     drafted = best.length;
   }
 
-  const waiting = `${queued} new ${queued === 1 ? "posting is" : "postings are"} waiting for a look.`;
+  const waiting = `${queued} new ${queued === 1 ? "posting is" : "postings are"} waiting for a look.${ineligible > 0 ? ` ${ineligible} left out as not eligible or unrelated.` : ""}`;
   const message =
     scored === 0
       ? (problem ?? "No postings could be scored this time.")
@@ -179,5 +198,5 @@ export async function runAgentScan({ manual }: { manual: boolean }, context: Job
         : drafted > 0
           ? `${waiting} Preparing ${drafted === 1 ? "a draft for the best one" : `drafts for the best ${drafted}`}.`
           : waiting;
-  return finish({ ...counts, scored, drafted, message });
+  return finish({ ...counts, scored, drafted, message: `${message}${troubleText}` });
 }

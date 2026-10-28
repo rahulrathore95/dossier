@@ -27,6 +27,8 @@ import { createApplication, fetchPostingText, handOffToClaude, startReadingPosti
 import { DetailsCard } from "./details-card";
 import { createDraftStore } from "./draft-store";
 import { MatchCard } from "./match-card";
+import { recommendVariant, type ResumeVariant } from "@/lib/resume-variants";
+
 import { TailoringCard } from "./tailoring-card";
 import { JobProgress, jobStep } from "./job-progress";
 
@@ -61,6 +63,8 @@ export type Draft = {
   postingId?: string | null;
   /** The startup it was started from with "Write to them" (#222). */
   startupId?: string | null;
+  /** The resume variant (this fork): "auto" for the posting's best fit, "none", or a variant's id; missing means "auto". */
+  variant?: string;
 };
 
 /** A posting handed over by "Start application" on Find jobs (E14-8), or by "Write to them" on Startups (#222). */
@@ -144,10 +148,12 @@ export type NewApplicationProps = {
   fresh?: boolean;
   /** "Start application" on Find jobs: start over from this posting. */
   fromPosting?: FromPosting | null;
+  /** The profile's resume variants (this fork). */
+  variants?: readonly ResumeVariant[];
 };
 
 /** The new application flow (E7): paste → read → review → create. */
-export function NewApplication({ aiReady, writeInClaude = false, samplePosting, defaultTone, fresh = false, fromPosting = null }: NewApplicationProps) {
+export function NewApplication({ aiReady, writeInClaude = false, samplePosting, defaultTone, fresh = false, fromPosting = null, variants = [] }: NewApplicationProps) {
   const [initial] = useState<Draft>(() => ({
     step: "paste",
     posting: "",
@@ -311,7 +317,15 @@ export function NewApplication({ aiReady, writeInClaude = false, samplePosting, 
     if (!draft.read || !draft.readJobId || starting) return;
     setStarting(true);
     const result = toastResult(
-      await startWritingDocuments({ readJobId: draft.readJobId, details: draft.details, match: draft.read.match, tone: draft.tone, note: draft.note }),
+      await startWritingDocuments({
+        readJobId: draft.readJobId,
+        details: draft.details,
+        match: draft.read.match,
+        tone: draft.tone,
+        note: draft.note,
+        // "auto" leaves it to the job: the variant the posting fits best (this fork).
+        ...(variants.length > 0 && draft.variant && draft.variant !== "auto" ? { variantId: draft.variant === "none" ? null : draft.variant } : {}),
+      }),
     );
     setStarting(false);
     if (!result.ok) return;
@@ -443,7 +457,16 @@ export function NewApplication({ aiReady, writeInClaude = false, samplePosting, 
             <>
               <DetailsCard details={draft.details} onChange={(details) => update({ details })} />
               <MatchCard match={draft.read.match} requirements={draft.read.extracted.requirements} onAddSkill={(index, skill) => void addToProfile(index, skill)} />
-              <TailoringCard tone={draft.tone} note={draft.note} onTone={(tone) => update({ tone })} onNote={(note) => update({ note })} />
+              <TailoringCard
+                tone={draft.tone}
+                note={draft.note}
+                onTone={(tone) => update({ tone })}
+                onNote={(note) => update({ note })}
+                variants={variants}
+                variant={draft.variant ?? "auto"}
+                recommended={recommendVariant(variants, draft.posting)}
+                onVariant={(variant) => update({ variant })}
+              />
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <Button variant="text" onClick={() => update({ step: "paste" })}>
                   ← Back to the posting

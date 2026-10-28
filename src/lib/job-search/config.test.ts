@@ -15,6 +15,10 @@ const nothingSaved = {
   firecrawlKeyEnc: null,
   arbeitsagenturAcceptedAt: null,
   blockedCompanies: [],
+  jobSearchMode: "all" as const,
+  targetRoles: [],
+  salaryFloorLpa: 40,
+  requireIndia: true,
 };
 const ACCEPTED = "2026-10-23T09:00:00.000Z";
 const noEnv = {};
@@ -30,6 +34,7 @@ describe("resolveJobSearchConfig", () => {
       firecrawl: { keyState: "none" },
       arbeitsagentur: { offered: true, acceptedAt: null },
       blockedCompanies: [],
+      preferences: { mode: "all", targetRoles: [], salaryFloorLpa: 40, requireIndia: true },
     });
   });
 
@@ -59,6 +64,7 @@ describe("resolveJobSearchConfig", () => {
 
   it("prefers what's saved, Off included, and decrypts saved keys", () => {
     const saved = {
+      ...nothingSaved,
       jobSource: "ADZUNA" as const,
       jsearchKeyEnc: encryptSecret(JOB_SOURCE_KEY, "ak_saved"),
       jsearchHost: "openwebninja" as const,

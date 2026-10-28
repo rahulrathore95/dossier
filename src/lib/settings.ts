@@ -123,8 +123,12 @@ export const settingsSchema = z.object({
   customLanguages: stringList.catch([]),
   fileNamePattern: z.string().catch("{name} – {company} – {doc}"),
   includeRefs: flag(false),
-  /** Up to two pages unless chosen (decided 22 October 2026: resumes aren't forced to one page). */
-  pageLimit: pageLimit.catch("2"),
+  /**
+   * One page unless chosen (this fork, 28 October 2026: a one-page resume,
+   * fitted by leaving out what's least relevant to the job, never by
+   * shrinking it). Upstream's default is up to two pages.
+   */
+  pageLimit: pageLimit.catch("1"),
   nightlyBackup: flag(true),
   /** Finished background jobs are deleted after this many hours (JOB_RETENTION_OPTIONS). */
   jobRetentionHours: z.coerce.number().refine(isJobRetention).catch(DEFAULT_JOB_RETENTION_HOURS),
@@ -165,6 +169,19 @@ export const settingsSchema = z.object({
    * listing that only names the company in the description is still caught.
    */
   blockedCompanies: stringList.catch([]),
+  /**
+   * What a fresh search asks (this fork): every source with a key saved,
+   * merged and de-duplicated ("all"), or the chosen one first and the next
+   * only when it fails ("fallback", what this fork did before). "all" finds
+   * more, and spends one search from each source's plan.
+   */
+  jobSearchMode: z.enum(["all", "fallback"]).catch("all"),
+  /** More role titles to search for besides a search's keywords, e.g. "Staff Data Engineer" (this fork). */
+  targetRoles: stringList.catch([]),
+  /** The least pay worth showing, in lakhs a year (₹ LPA); 0 turns it off. Only pay a posting states in rupees is compared (this fork). */
+  salaryFloorLpa: z.coerce.number().int().min(0).max(1000).catch(40),
+  /** Leave out postings whose own words put them outside India, or remote only from another country (this fork). */
+  requireIndia: flag(true),
   // Job agent (E16): one search, run once a day. Off until it's turned on.
   // It asks the source in Settings → Job search, with its key.
   agentEnabled: flag(false),
@@ -172,6 +189,8 @@ export const settingsSchema = z.object({
   agentQuery: json(searchQuerySchema).catch(EMPTY_QUERY),
   /** The hour of the day it runs, in the user's time zone. */
   agentHour: z.coerce.number().int().min(0).max(23).catch(7),
+  /** How many times a day it runs, from agentHour on, evenly spread (this fork); at most the three runs a day it may make. */
+  agentRunsPerDay: z.coerce.number().int().min(1).max(3).catch(1),
   /** Postings scored below this stay out of the queue. */
   agentMinScore: z.coerce.number().int().min(0).max(100).catch(70),
   /** The most postings a run scores, and the most drafts it prepares on its own. */

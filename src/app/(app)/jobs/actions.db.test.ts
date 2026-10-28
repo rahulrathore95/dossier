@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 
 import { json, stubFetch } from "@/lib/ai/test-http";
 import { clearJobSearchCache } from "@/lib/job-search/cache";
+import { clearSourceHealth } from "@/lib/job-search/health";
 import { EMPTY_QUERY, type FoundPosting } from "@/lib/job-search/search";
 import { encryptSecret, JOB_SOURCE_KEY } from "@/lib/secrets";
 import { saveSettings } from "@/lib/settings-data";
@@ -60,6 +61,7 @@ beforeEach(async () => {
   ai.ready = true;
   await resetDatabase(prisma());
   clearJobSearchCache();
+  clearSourceHealth();
   await saveSettings({ jobSource: "JSEARCH", jsearchKeyEnc: encryptSecret(JOB_SOURCE_KEY, "ak_test") });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -119,6 +121,16 @@ describe("Find jobs actions", () => {
       description: "The start…",
       complete: false,
     });
+  });
+
+  it("won't start a second application for a job that has one, unless asked for another version (this fork)", async () => {
+    const application = await prisma().application.create({ data: { title: "Already", postingUrl: posting.url } });
+    expect(await startApplicationFrom({ posting })).toEqual({
+      ok: false,
+      error: "You already have an application for this job. Open it, or choose Write another version.",
+    });
+    expect(await startApplicationFrom({ posting, again: true })).toMatchObject({ ok: true });
+    expect(application.id).toBeTruthy();
   });
 });
 

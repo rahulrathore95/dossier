@@ -4,6 +4,7 @@ import type { AgentRun } from "@/lib/settings";
 import { saveSettings } from "@/lib/settings-data";
 import { createTestClient, resetDatabase } from "@/test/db";
 
+import { runHours } from "./run-hours";
 import { nextAgentRun, resetInterruptedDrafts, scheduledRunDue, startDueRun } from "./schedule";
 import { runLimitProblem } from "./runs";
 
@@ -28,6 +29,29 @@ beforeEach(async () => {
   await resetDatabase(prisma());
 });
 afterAll(() => prisma().$disconnect());
+
+describe("several runs a day (this fork)", () => {
+  it("spreads them evenly from the chosen hour", () => {
+    expect(runHours(7, 1)).toEqual([7]);
+    expect(runHours(7, 2)).toEqual([7, 19]);
+    expect(runHours(7, 3)).toEqual([7, 15, 23]);
+    expect(runHours(20, 2)).toEqual([8, 20]);
+  });
+
+  it("is due once each run time has come, and not again until the next", () => {
+    const at = (iso: string) => new Date(iso);
+    // 07:00 and 19:00 UTC.
+    expect(scheduledRunDue(at("2026-10-20T07:05:00Z"), 7, "UTC", [], 2)).toBe(true);
+    expect(scheduledRunDue(at("2026-10-20T12:00:00Z"), 7, "UTC", [run("2026-10-20T07:05:00Z")], 2)).toBe(false);
+    expect(scheduledRunDue(at("2026-10-20T19:01:00Z"), 7, "UTC", [run("2026-10-20T07:05:00Z")], 2)).toBe(true);
+    expect(scheduledRunDue(at("2026-10-20T06:00:00Z"), 7, "UTC", [], 2)).toBe(false);
+  });
+
+  it("says when the next one starts", () => {
+    expect(nextAgentRun(new Date("2026-10-20T08:00:00Z"), 7, "UTC", [run("2026-10-20T07:05:00Z")], 2).toISOString()).toBe("2026-10-20T19:00:00.000Z");
+    expect(nextAgentRun(new Date("2026-10-20T20:00:00Z"), 7, "UTC", [run("2026-10-20T19:05:00Z")], 2).toISOString()).toBe("2026-10-21T07:00:00.000Z");
+  });
+});
 
 describe("when the daily run is due (E16-4)", () => {
   it("reads the hour and the day in the user's time zone, not the server's", () => {

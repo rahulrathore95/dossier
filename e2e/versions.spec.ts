@@ -1,11 +1,15 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-import { resetData } from "./support";
+import { resetData, sql } from "./support";
 
 // Document history (E8-10): the first draft and each AI change are versions;
 // an earlier one can be looked at in place and restored.
-test.beforeAll(resetData);
+test.beforeAll(async () => {
+  await resetData();
+  // This spec changes the summary, which a one-page resume (this fork's default) leaves out.
+  await sql(`INSERT INTO "Setting" (key, value, "updatedAt") VALUES ('pageLimit', '2', now())`);
+});
 
 test("restores the first draft after a change from the chat", async ({ page }) => {
   await page.goto("/new?fresh=1");

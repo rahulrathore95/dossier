@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { SECTIONS, sectionFromParam, sectionHref } from "./sections";
 
 describe("profile sections", () => {
-  it("come in the order Basics → Skills & languages → Experience → Projects → Education → Publications → References → Facts about me", () => {
+  it("come in the order Basics → Skills & languages → Experience → Projects → Education → Publications → References → Facts about me → Resume variants", () => {
     expect(SECTIONS.map((section) => section.label)).toEqual([
       "Basics",
       "Skills & languages",
@@ -13,11 +13,12 @@ describe("profile sections", () => {
       "Publications",
       "References",
       "Facts about me",
+      "Resume variants",
     ]);
   });
 
-  it("mark Projects, Publications, References and Facts about me as optional (#216)", () => {
-    expect(SECTIONS.filter((section) => section.optional).map((section) => section.id)).toEqual(["projects", "publications", "references", "facts"]);
+  it("mark Projects, Publications, References, Facts about me and Resume variants as optional (#216)", () => {
+    expect(SECTIONS.filter((section) => section.optional).map((section) => section.id)).toEqual(["projects", "publications", "references", "facts", "variants"]);
   });
 
   it("read the current section from the URL, falling back to Basics", () => {

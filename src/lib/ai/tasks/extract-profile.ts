@@ -7,7 +7,7 @@ import { importedProfileSchema, type ImportedProfile } from "@/lib/profile-impor
 
 import { system, type Task } from "./prompt-parts";
 
-export const EXTRACT_PROFILE_VERSION = "extract-profile@3";
+export const EXTRACT_PROFILE_VERSION = "extract-profile@4";
 
 // What the model returns; code checks every part of it (E4-10).
 const text = z.string().nullable();
@@ -49,7 +49,7 @@ Take everything only from the resume: never add, guess or improve facts. Use nul
 - basics: name; headline (their current title or one-line description); email; phone; dob (date of birth as YYYY-MM-DD, only if the resume gives the full date); website; address (street and number); city; country; linkedin (the URL or handle); summary (their profile or summary paragraph, in their words).
 - skills: skills, tools and methods the resume lists or clearly names, each short ("Figma", "Design systems", "User research"), once each.
 - languages: spoken languages with a level: NATIVE, or the CEFR level C2, C1, B2, B1, A2 or A1 ("fluent" is C1, "business" B2, "basic" A2). Use null when no level is given.
-- experience: every role, most recent first. startYear and endYear as four-digit years, startMonth and endMonth as 1–12 (null when only a year is given); current is true when the role hasn't ended ("present", "today"). bullets: what they did, one item per point, in the resume's words. skills: the skills from your skills list this role mentions.
+- experience: every role, most recent first. startYear and endYear as four-digit years, startMonth and endMonth as 1–12 (null when only a year is given); current is true when the role hasn't ended ("present", "today"). bullets: every point the resume lists for the role, one item per point, word for word: never shortened, merged, split, reworded or left out, and every number kept as written. skills: the skills from your skills list this role mentions.
 - projects: every project the resume lists apart from its roles (side, open-source, course or thesis projects), most recent first, with its link if given, the same dates, bullets as for roles, and the skills from your skills list it mentions. A project described inside a role stays in that role's bullets.
 - education: every degree, course or certificate, with the same dates, and notes (grade, focus, thesis) if given.
 - publications: every paper, article, book or chapter the resume lists as the candidate's publications, in its order. citation: the whole entry exactly as the resume writes it, word for word, without its link; link: its DOI or web address if given.
@@ -86,6 +86,15 @@ export function checkedProfile(answer: z.infer<typeof answerSchema>, resume: str
   const haystack = normalized(resume);
   const inResume = (value: string) => !value.trim() || haystack.includes(normalized(value));
   const missing = (...values: string[]) => values.filter((value) => !inResume(value));
+  // This fork: a bullet that isn't in the resume word for word, and any number in it the resume doesn't have, is for the user to check before it's used.
+  const numbers = new Set(resume.match(/\d+(?:[.,]\d+)*/g) ?? []);
+  const uncheckedBullets = (bullets: string[]) =>
+    bullets.flatMap((line) => {
+      const clean = line.replace(/^[-•*·▪]\s*/, "").trim();
+      if (!clean || inResume(clean)) return [];
+      const invented = (clean.match(/\d+(?:[.,]\d+)*/g) ?? []).filter((number) => !numbers.has(number));
+      return [`${clean.length > 60 ? `${clean.slice(0, 57)}…` : clean}${invented.length > 0 ? ` (${invented.join(", ")} not in the file)` : ""}`];
+    });
   const clean = (value: string | null | undefined) => (value ?? "").trim();
 
   const year = (value: number | null) => (value !== null && value >= 1940 && value <= today.getFullYear() + 1 ? value : null);
@@ -128,7 +137,7 @@ export function checkedProfile(answer: z.infer<typeof answerSchema>, resume: str
       bullets: entry.bullets.map((line) => line.replace(/^[-•*·▪]\s*/, "").trim()).filter(Boolean).join("\n"),
       skills: [...new Set(entry.skills.flatMap((name) => addSkill(name) ?? []))],
       ...span(entry),
-      unverified: missing(clean(entry.role), clean(entry.company)),
+      unverified: [...missing(clean(entry.role), clean(entry.company)), ...uncheckedBullets(entry.bullets)],
     }));
 
   const projects = answer.projects
@@ -139,7 +148,7 @@ export function checkedProfile(answer: z.infer<typeof answerSchema>, resume: str
       bullets: entry.bullets.map((line) => line.replace(/^[-•*·▪]\s*/, "").trim()).filter(Boolean).join("\n"),
       skills: [...new Set(entry.skills.flatMap((name) => addSkill(name) ?? []))],
       ...span(entry),
-      unverified: missing(clean(entry.name)),
+      unverified: [...missing(clean(entry.name)), ...uncheckedBullets(entry.bullets)],
     }));
 
   return importedProfileSchema.parse({

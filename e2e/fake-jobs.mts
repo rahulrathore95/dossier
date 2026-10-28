@@ -8,6 +8,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 const port = Number(process.env.FAKE_JOBS_PORT ?? 3998);
 /** The JSearch key the app is given in e2e/support.ts. */
 const JSEARCH_KEY = "e2e-jsearch-key";
+const FIRECRAWL_KEY = "e2e-firecrawl-key";
+/** Firecrawl searches asked for (this fork), for specs to check. */
+let firecrawlQueries = 0;
 
 const job = (id: string, title: string, company: string, extra: Record<string, unknown> = {}) => ({
   job_id: id,
@@ -90,7 +93,7 @@ const pings: unknown[] = [];
 createServer((request, response) => {
   const url = new URL(request.url ?? "/", `http://localhost:${port}`);
   if (url.pathname === "/health") return send(response, 200, { ok: true });
-  if (url.pathname === "/searches") return send(response, 200, { searches });
+  if (url.pathname === "/searches") return send(response, 200, { searches, firecrawlQueries });
   if (url.pathname === "/pings") return send(response, 200, { pings });
   if (url.pathname === "/startup-requests") return send(response, 200, { requests: siteRequests });
   if (url.pathname.startsWith("/startups/")) return startups(url.pathname, request, response);
@@ -114,6 +117,32 @@ createServer((request, response) => {
     if (/nothing/i.test(url.searchParams.get("query") ?? "")) return send(response, 200, { status: "OK", data: { jobs: [], cursor: null } });
     const second = url.searchParams.get("cursor") === "PAGE-2";
     return send(response, 200, { status: "OK", request_id: "e2e", data: second ? { jobs: secondPage, cursor: null } : { jobs: firstPage, cursor: "PAGE-2" } });
+  }
+
+  // Firecrawl's web search (this fork): every planned query gets the same mix a real search
+  // returns — a board's list page, an employer's ATS posting open to India, a remote one
+  // limited to the US, and a LinkedIn copy of the Indian posting's job.
+  if (url.pathname === "/firecrawl/search" && request.method === "POST") {
+    if (request.headers.authorization !== `Bearer ${FIRECRAWL_KEY}`) return send(response, 401, { success: false, error: "Unauthorized" });
+    firecrawlQueries += 1;
+    return send(response, 200, {
+      success: true,
+      data: {
+        web: [
+          { url: "https://in.linkedin.com/jobs/product-designer-jobs-bengaluru", title: "2,000+ Product Designer jobs in Bengaluru (120 new) | LinkedIn", description: "Today's top Product Designer jobs." },
+          {
+            url: "https://jobs.lever.co/chaipay/02b45afd-5a49-41b2-a244-b0ca76306692",
+            title: "Chaipay - Senior Product Designer (India) - Lever",
+            description: "1 day ago · Senior Product Designer. Bengaluru, India. Design systems in Figma for our payments app. ₹45-60 LPA.",
+          },
+          {
+            url: "https://jobs.ashbyhq.com/statesidepay/180396cb-92a2-4f78-b38b-748eb4341e12",
+            title: "Senior Product Designer - Remote - US @ Stateside Pay - Jobs",
+            description: "Remote within the United States only. Figma, design systems.",
+          },
+        ],
+      },
+    });
   }
 
   if (url.pathname.startsWith("/adzuna/")) {

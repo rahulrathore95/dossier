@@ -6,7 +6,8 @@ const fetchPosting = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posting-fetch", () => ({ fetchPosting }));
 
 import { JobSearchError } from "./errors";
-import { companyFromAtsUrl, firecrawl, parseResultTitle, postingFromResult } from "./firecrawl";
+import { companyFromAtsUrl, firecrawl, indexedAtOf, parseResultTitle, postingFromResult } from "./firecrawl";
+import { plannedQueries } from "./queries";
 import { EMPTY_QUERY, type SearchQuery } from "./search";
 
 const query: SearchQuery = { ...EMPTY_QUERY, keywords: "data engineer", place: "Bengaluru", country: "in", postedWithin: "week" };
@@ -24,25 +25,17 @@ type SearchBody = { query: string; country?: string; location?: string; tbs?: st
 const bodyOf = (request: { body: unknown }) => request.body as SearchBody;
 
 describe("Firecrawl search", () => {
-  it("POSTs two /v2/search requests per search: one job-board-biased, one wide open, both with the key, country and location", async () => {
+  it("POSTs every planned query (queries.ts) to /v2/search, with the key, country and location", async () => {
     const requests = stubFetch(() => answer([]));
     await firecrawl.search(query, creds, null);
-    expect(requests).toHaveLength(2);
-    const [biased, open] = requests.map(bodyOf);
-
-    for (const { url, method, headers } of requests) {
-      expect(method).toBe("POST");
-      expect(`${url.origin}${url.pathname}`).toBe("https://api.firecrawl.dev/v2/search");
-      expect(headers.get("authorization")).toBe("Bearer fc_test");
+    expect(requests).toHaveLength(plannedQueries(query).length);
+    expect(requests.map((request) => bodyOf(request).query)).toEqual(plannedQueries(query).map((entry) => entry.text));
+    for (const request of requests) {
+      expect(request.method).toBe("POST");
+      expect(`${request.url.origin}${request.url.pathname}`).toBe("https://api.firecrawl.dev/v2/search");
+      expect(request.headers.get("authorization")).toBe("Bearer fc_test");
+      expect(bodyOf(request)).toMatchObject({ country: "IN", location: "Bengaluru", tbs: "qdr:w" });
     }
-    expect(biased).toMatchObject({ country: "IN", location: "Bengaluru", tbs: "qdr:w" });
-    expect(biased.query).toContain("data engineer jobs in Bengaluru");
-    expect(biased.query).toContain("site:linkedin.com");
-    expect(biased.query).toContain("site:naukri.com");
-
-    expect(open).toMatchObject({ country: "IN", location: "Bengaluru", tbs: "qdr:w" });
-    expect(open.query).toBe("data engineer jobs in Bengaluru");
-    expect(open.query).not.toContain("site:");
   });
 
   it("widens a 3-day search to a week, since Google has no 3-day unit", async () => {
@@ -66,7 +59,7 @@ describe("Firecrawl search", () => {
     expect(page.next).toBeNull();
   });
 
-  it("drops results with no usable link or title, and de-duplicates by link", async () => {
+  it("drops results with no usable link or title, and de-duplicates by link across queries", async () => {
     stubFetch(() =>
       answer([
         { url: "https://example.com/a", title: "Data Engineer" },
@@ -78,6 +71,27 @@ describe("Firecrawl search", () => {
     const page = await firecrawl.search(query, creds, null);
     expect(page.postings).toHaveLength(1);
     expect(page.postings[0].url).toBe("https://example.com/a");
+  });
+
+  it("leaves out pages that list many jobs, and says how many", async () => {
+    stubFetch(() =>
+      answer([
+        { url: "https://in.linkedin.com/jobs/remote-data-engineer-jobs", title: "Remote Data Engineer Jobs in India (2,000+ Open Roles) | LinkedIn" },
+        { url: "https://jobs.lever.co/netomi/02b45afd-5a49-41b2-a244-b0ca76306692", title: "Data Engineer I - Netomi - Lever", description: "Data Engineer I. Remote - India." },
+      ]),
+    );
+    const page = await firecrawl.search(query, creds, null);
+    expect(page.postings.map((posting) => posting.url)).toEqual(["https://jobs.lever.co/netomi/02b45afd-5a49-41b2-a244-b0ca76306692"]);
+    expect(page.postings[0]).toMatchObject({ company: "Netomi", via: "Lever", remote: true });
+    expect(page.notes?.[0]).toMatch(/^Left out \d+ pages that list many jobs/);
+  });
+
+  it("keeps what the other queries found when some hit the rate limit, and says so", async () => {
+    let call = 0;
+    stubFetch(() => (call++ % 2 === 0 ? answer([{ url: `https://example.com/${call}`, title: "Data Engineer" }]) : json({ success: false }, { status: 429 })));
+    const page = await firecrawl.search(query, creds, null);
+    expect(page.postings.length).toBeGreaterThan(0);
+    expect(page.notes?.at(-1)).toMatch(/Firecrawl searches didn't answer \(Firecrawl's rate limit\); these results may be incomplete\.$/);
   });
 
   it("says the source isn't answering when it can't be reached", async () => {
@@ -105,6 +119,9 @@ describe("companyFromAtsUrl", () => {
     expect(companyFromAtsUrl("https://jobs.ashbyhq.com/acmecorp/posting")).toBe("Acmecorp");
     expect(companyFromAtsUrl("https://jobs.smartrecruiters.com/Acmecorp/job")).toBe("Acmecorp");
     expect(companyFromAtsUrl("https://acmecorp.wd1.myworkdayjobs.com/en-US/careers/job/123")).toBe("Acmecorp");
+    expect(companyFromAtsUrl("https://apply.workable.com/v4c/j/BA848A8DD3/")).toBe("V4c");
+    expect(companyFromAtsUrl("https://nationsbenefits.breezy.hr/p/14dbd9e43ce1-lead-data-engineer")).toBe("Nationsbenefits");
+    expect(companyFromAtsUrl("https://teoco.na.teamtailor.com/jobs/727050-data-engineer")).toBe("Teoco");
   });
 
   it("gives up on a link that isn't a known applicant-tracking system, or isn't a link at all", () => {
@@ -122,7 +139,21 @@ describe("parseResultTitle", () => {
   });
 
   it("splits 'Role - Company - Place' from Indeed/Naukri-style titles", () => {
-    expect(parseResultTitle("Senior Data Engineer - Acme Corp - Bengaluru")).toEqual({ title: "Senior Data Engineer", company: "Bengaluru" });
+    expect(parseResultTitle("Senior Data Engineer - Acme Corp - Bengaluru")).toEqual({ title: "Senior Data Engineer", company: "Acme Corp" });
+    expect(parseResultTitle("Senior Data Engineer - Pune - LTM - 3 to 5 years of experience - Naukri.com")).toEqual({ title: "Senior Data Engineer", company: "LTM" });
+  });
+
+  it("takes the part that isn't the company as the title when the link names the company, in either order (Lever)", () => {
+    expect(parseResultTitle("Chaipay - Senior Product Designer (India) - Lever", "Chaipay")).toEqual({ title: "Senior Product Designer (India)", company: "Chaipay" });
+    expect(parseResultTitle("Data Engineer - Wahed - Lever", "Wahed.com")).toEqual({ title: "Data Engineer", company: "Wahed.com" });
+    expect(parseResultTitle("IDT - Senior Data Engineer (with AI/ML experience) India - Lever", "Idt")).toEqual({ title: "Senior Data Engineer (with AI/ML experience) India", company: "Idt" });
+    expect(parseResultTitle("Senior Data Engineer", "Acme")).toEqual({ title: "Senior Data Engineer", company: "" });
+  });
+
+  it("reads Greenhouse, Ashby and LinkedIn job-page titles", () => {
+    expect(parseResultTitle("Job Application for Senior Data Engineer (India) at Karat")).toEqual({ title: "Senior Data Engineer (India)", company: "Karat" });
+    expect(parseResultTitle("Senior Data Engineer @ Outmarket AI - Jobs")).toEqual({ title: "Senior Data Engineer", company: "Outmarket AI" });
+    expect(parseResultTitle("Senior Data Engineer at Cognite — Bengaluru, Karnataka, India")).toEqual({ title: "Senior Data Engineer", company: "Cognite" });
   });
 
   it("falls back to the whole title with no company when nothing matches", () => {
@@ -153,6 +184,16 @@ describe("postingFromResult", () => {
   });
 });
 
+describe("indexedAtOf", () => {
+  const now = new Date("2026-10-28T12:00:00Z");
+  it("reads the search engine's date for the page, not the posting's", () => {
+    expect(indexedAtOf("1 day ago · Job Description for Senior Data Engineer", now)).toBe("2026-10-27T12:00:00.000Z");
+    expect(indexedAtOf("20 hours ago · We are looking for", now)).toBe("2026-10-27T16:00:00.000Z");
+    expect(indexedAtOf("Python Data Engineer. at Flatgigs. RemoteIndia. Posted today.", now)).toBe(now.toISOString());
+    expect(indexedAtOf("Build our data platform.", now)).toBeNull();
+  });
+});
+
 describe("Firecrawl details and test", () => {
   it("fetches the posting's own page for the rest of it, like Adzuna does", async () => {
     fetchPosting.mockResolvedValueOnce({ ok: true, text: "The whole posting.", source: "page", url: "https://example.com/job" });
@@ -169,6 +210,6 @@ describe("Firecrawl details and test", () => {
     const requests = stubFetch(() => answer([]));
     await firecrawl.test(creds);
     expect(requests).toHaveLength(1);
-    expect(requests[0].body).toMatchObject({ query: expect.stringContaining("developer jobs") });
+    expect(requests[0].body).toMatchObject({ query: '"developer" jobs' });
   });
 });

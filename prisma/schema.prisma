@@ -442,6 +442,8 @@ model Application {
   agentCandidate      AgentCandidate?
   /// The startup it was started from on Startups, if any (#222).
   startup             Startup?
+  /// The resume variant the tailored resume was written from (this fork); null for none. Not a relation: a deleted variant leaves the application as it was.
+  variantId           String?
   /// Mail sent and received about it through Gmail (E15-3).
   emails              EmailMessage[]
   events              StatusEvent[]
@@ -583,6 +585,37 @@ enum PostingSource {
   ARBEITSAGENTUR
 }
 
+/// A resume file as uploaded for the profile import (this fork): the master
+/// resume's original, kept apart from what was read from it and from every
+/// tailored resume. Only the latest few are kept (resume-files.ts).
+model ResumeFile {
+  id        String   @id @default(cuid())
+  /// As the browser named it, e.g. "Jane Doe CV.pdf".
+  name      String
+  mimeType  String
+  size      Int
+  bytes     Bytes
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// A resume variant (this fork): one way to position the same master resume,
+/// e.g. "GCP Senior Data Engineer". It changes emphasis only — which skills
+/// lead and what the summary stresses — never the facts, which always come
+/// from the profile.
+model ResumeVariant {
+  id          String   @id @default(cuid())
+  name        String
+  /// How to pitch the candidate for this kind of job, in a sentence or two.
+  positioning String   @default("")
+  /// The profile's skills to lead with, as a JSON list of names.
+  focusSkills Json
+  sort        Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 /// A posting from Find jobs that the user kept (E14-5): saved, dismissed, or
 /// started an application from. Plain search results aren't stored. The
 /// fields follow the posting shape in src/lib/job-search/search.ts.
@@ -711,6 +744,8 @@ model PostingSearch {
   found     Int           @default(0)
   /// What to ask the source for the next page; null on the last one.
   next      String?
+  /// What each source did (SourceReport[] in src/lib/job-search/search.ts): asked, failed, resting or not set up (this fork).
+  report    Json?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
