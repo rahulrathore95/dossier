@@ -69,7 +69,7 @@ describe("SourceReportNote", () => {
         report={[
           { source: "JSEARCH", status: "failed", found: 0, message: "You've used up your JSearch searches for this month." },
           { source: "FIRECRAWL", status: "ok", found: 12, message: "Left out 9 pages that list many jobs rather than one posting." },
-          { source: "ADZUNA", status: "not-configured", found: 0, message: "" },
+          { source: "ADZUNA", status: "not-configured", found: 0, message: "Add your Adzuna app ID and key in Settings → Job search first." },
         ]}
       />,
     );

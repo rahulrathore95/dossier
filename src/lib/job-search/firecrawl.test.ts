@@ -143,6 +143,13 @@ describe("parseResultTitle", () => {
     expect(parseResultTitle("Senior Data Engineer - Pune - LTM - 3 to 5 years of experience - Naukri.com")).toEqual({ title: "Senior Data Engineer", company: "LTM" });
   });
 
+  it("takes the part that isn't the company as the title when the link names the company, in either order (Lever)", () => {
+    expect(parseResultTitle("Chaipay - Senior Product Designer (India) - Lever", "Chaipay")).toEqual({ title: "Senior Product Designer (India)", company: "Chaipay" });
+    expect(parseResultTitle("Data Engineer - Wahed - Lever", "Wahed.com")).toEqual({ title: "Data Engineer", company: "Wahed.com" });
+    expect(parseResultTitle("IDT - Senior Data Engineer (with AI/ML experience) India - Lever", "Idt")).toEqual({ title: "Senior Data Engineer (with AI/ML experience) India", company: "Idt" });
+    expect(parseResultTitle("Senior Data Engineer", "Acme")).toEqual({ title: "Senior Data Engineer", company: "" });
+  });
+
   it("reads Greenhouse, Ashby and LinkedIn job-page titles", () => {
     expect(parseResultTitle("Job Application for Senior Data Engineer (India) at Karat")).toEqual({ title: "Senior Data Engineer (India)", company: "Karat" });
     expect(parseResultTitle("Senior Data Engineer @ Outmarket AI - Jobs")).toEqual({ title: "Senior Data Engineer", company: "Outmarket AI" });

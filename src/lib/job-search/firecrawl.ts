@@ -109,8 +109,18 @@ const SITE_SUFFIX =
  * whole title with no company, rather than guessing wrong — isBlockedPosting
  * still has the full title and description to check against.
  */
-export function parseResultTitle(raw: string): { title: string; company: string } {
+export function parseResultTitle(raw: string, knownCompany = ""): { title: string; company: string } {
   const bare = plainText(raw).replace(SITE_SUFFIX, "").replace(SITE_SUFFIX, "").trim();
+  // Lever writes "Chaipay - Senior Product Designer" as often as "Data Engineer - Wahed": with the company known from the
+  // link, the title is the part that isn't it (this fork).
+  const key = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const company = key(knownCompany);
+  if (company) {
+    const parts = bare.split(/\s+[-–—|]\s+/).filter(Boolean);
+    const isCompany = (part: string) => key(part) === company || (key(part).length >= 3 && (company.startsWith(key(part)) || key(part).startsWith(company)));
+    const rest = parts.filter((part) => !isCompany(part));
+    if (parts.length >= 2 && rest.length < parts.length && rest.length > 0) return { title: rest.join(" - ").trim(), company: knownCompany };
+  }
   // Greenhouse: "Job Application for Senior Data Engineer at Karat"
   const application = /^Job Application for (.+?) at (.+)$/i.exec(bare);
   if (application) return { title: application[1].trim(), company: application[2].trim() };
@@ -148,8 +158,9 @@ export function indexedAtOf(snippet: string, now = new Date()): string | null {
 
 export function postingFromResult(result: Result, now = new Date()): FoundPosting {
   const url = safeLink(result.url);
-  const parsed = parseResultTitle(result.title ?? "");
-  const company = companyFromAtsUrl(url) || parsed.company;
+  const fromUrl = companyFromAtsUrl(url);
+  const parsed = parseResultTitle(result.title ?? "", fromUrl);
+  const company = fromUrl || parsed.company;
   const snippet = plainText(result.description);
   const description = fromMarkdown(result.markdown) || snippet.slice(0, 100_000);
   const remote = /\bremote\b/i.test(`${result.title ?? ""} ${snippet.slice(0, 300)}`) ? true : null;

@@ -78,14 +78,13 @@ export function SourceReportNote({ report }: { report: readonly SourceReport[] }
   return (
     <details className={cn("rounded-card px-4 py-2.5 text-meta", trouble ? "bg-warning-surface text-warning" : "bg-track text-muted")} open={trouble}>
       <summary className="cursor-pointer">
-        {report
-          .filter((entry) => entry.status !== "not-configured" || entry.message)
+        {asked
           .map((entry) => `${SOURCE_INFO[entry.source].name} ${STATUS_WORDS[entry.status]}${entry.status === "ok" ? ` (${entry.found})` : ""}`)
           .join(" · ")}
       </summary>
       <ul className="mt-1.5 flex flex-col gap-1">
         {report
-          .filter((entry) => entry.message)
+          .filter((entry) => entry.message && entry.status !== "not-configured")
           .map((entry) => (
             <li key={entry.source}>
               <span className="font-medium">{SOURCE_INFO[entry.source].name}:</span> {entry.message}
