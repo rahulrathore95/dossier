@@ -30,9 +30,11 @@ export function RelevanceChips({ relevance }: { relevance: Relevance }) {
   const good = where === "india" || where === "anywhere";
   return (
     <span className="flex flex-wrap gap-1.5">
-      <span className={cn(chip, good ? "bg-success-surface text-success" : where === "unclear" ? "bg-track text-muted" : "bg-warning-surface text-warning")}>
-        {ELIGIBILITY_LABELS[where]}
-      </span>
+      {relevance.inIndia && (
+        <span className={cn(chip, good ? "bg-success-surface text-success" : where === "unclear" ? "bg-track text-muted" : "bg-warning-surface text-warning")}>
+          {ELIGIBILITY_LABELS[where]}
+        </span>
+      )}
       <span className={cn(chip, relevance.salary.status === "undisclosed" ? "bg-track text-muted" : "bg-track text-ink")}>{relevance.salaryLabel}</span>
       {relevance.direct && <span className={cn(chip, "bg-track text-ink")}>Direct apply</span>}
     </span>

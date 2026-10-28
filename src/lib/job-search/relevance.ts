@@ -27,6 +27,12 @@ export type RelevanceProfile = {
   salaryFloorLpa: number;
   /** Whether a posting must be doable from India. */
   requireIndia: boolean;
+  /**
+   * Whether India is where the candidate is (their profile's country, or the
+   * search's): only then does eligibility for India count in the score and
+   * the reasons. Absent means yes.
+   */
+  inIndia?: boolean;
 };
 
 export type Relevance = {
@@ -46,6 +52,8 @@ export type Relevance = {
   direct: boolean;
   /** Why it's left out of results by default; null when it isn't. */
   excluded: string | null;
+  /** Whether eligibility for India was judged (RelevanceProfile.inIndia). */
+  inIndia: boolean;
 };
 
 export const WEIGHTS = { skills: 35, title: 20, seniority: 10, eligibility: 15, salary: 10, freshness: 5, link: 5 } as const;
@@ -133,12 +141,12 @@ export function scoreRelevance(posting: FoundPosting, profile: RelevanceProfile,
     }
   }
 
-  // Where it can be done from.
+  // Where it can be done from, for someone in India; neutral for anyone else.
+  const inIndia = profile.inIndia ?? true;
   const eligibility = indiaEligibility(posting);
-  const eligibilityPoints = { india: 15, anywhere: 15, unclear: 7, restricted: 0, elsewhere: 0 }[eligibility.status];
+  const eligibilityPoints = inIndia ? { india: 15, anywhere: 15, unclear: 7, restricted: 0, elsewhere: 0 }[eligibility.status] : WEIGHTS.eligibility;
   const where = `${ELIGIBILITY_LABELS[eligibility.status]}${eligibility.evidence ? ` (“${eligibility.evidence}”)` : ""}`;
-  if (eligibilityPoints === 15) reasons.push(where);
-  else concerns.push(where);
+  if (inIndia) (eligibilityPoints === 15 ? reasons : concerns).push(where);
 
   // Pay against the floor.
   const salary = readSalary(posting);
@@ -160,11 +168,11 @@ export function scoreRelevance(posting: FoundPosting, profile: RelevanceProfile,
   const score = Math.max(0, Math.min(100, skillPoints + titlePoints + seniorityPoints + eligibilityPoints + salaryPoints + fresh.points + linkPoints));
 
   let excluded: string | null = null;
-  if (profile.requireIndia && (eligibility.status === "restricted" || eligibility.status === "elsewhere")) excluded = `Not open to India: ${where}`;
+  if (inIndia && profile.requireIndia && (eligibility.status === "restricted" || eligibility.status === "elsewhere")) excluded = `Not open to India: ${where}`;
   else if (meets === false && salary.status === "stated") excluded = `Pay stated below ₹${profile.salaryFloorLpa} LPA`;
   else if (best === 0 && matchedSkills.length < 2) excluded = "Unrelated: no target-role words in the title and fewer than two of your skills";
 
-  return { score, reasons, concerns, matchedSkills, missingSkills, eligibility, salary, salaryLabel: salaryLabel(salary), direct, excluded };
+  return { score, reasons, concerns, matchedSkills, missingSkills, eligibility, salary, salaryLabel: salaryLabel(salary), direct, excluded, inIndia };
 }
 
 type Span = { startYear: number | null; startMonth: number | null; current: boolean; endYear: number | null; endMonth: number | null };

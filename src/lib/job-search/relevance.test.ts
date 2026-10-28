@@ -110,3 +110,12 @@ describe("yearsOfExperience", () => {
     expect(yearsOfExperience([{ startYear: null, startMonth: null, current: false, endYear: null, endMonth: null }], now)).toBeNull();
   });
 });
+
+describe("outside India (this fork)", () => {
+  it("neither judges nor excludes by India when the candidate isn't there", () => {
+    const rotterdam = scoreRelevance(posting({ title: "Senior Data Engineer, Rotterdam" }), { ...profile, inIndia: false }, now);
+    expect(rotterdam.excluded).toBeNull();
+    expect(rotterdam.inIndia).toBe(false);
+    expect([...rotterdam.reasons, ...rotterdam.concerns].some((line) => /India|Outside India/.test(line))).toBe(false);
+  });
+});
