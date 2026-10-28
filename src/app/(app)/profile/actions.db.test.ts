@@ -42,6 +42,9 @@ import {
   setExperienceSkill,
   setLanguageLevel,
   sortEntriesByDate,
+  addVariant,
+  saveVariant,
+  removeVariant,
 } from "./actions";
 
 // The actions run against the test database, signed in.
@@ -405,6 +408,28 @@ describe("applying a profile read from a resume (E4-10)", () => {
         error: "That resume isn't read yet, or it's no longer there. Choose the file again.",
       });
     }
+  });
+});
+
+describe("resume variants (this fork)", () => {
+  it("adds, saves and removes a variant, leading only with the profile's own skills", async () => {
+    await addSkill({ name: "GCP" });
+    await addSkill({ name: "BigQuery" });
+    const added = await addVariant({ name: "GCP Senior Data Engineer", positioning: "GCP-native pipelines.", focusSkills: ["gcp", "BigQuery", "BigQuery"] });
+    expect(added).toMatchObject({ ok: true, data: { name: "GCP Senior Data Engineer", focusSkills: ["gcp", "BigQuery"] } });
+    const id = added.ok ? added.data.id : "";
+
+    expect(await addVariant({ name: "Azure", positioning: "", focusSkills: ["Azure"] })).toEqual({
+      ok: false,
+      error: "Add Azure to your skills first: a variant can only lead with skills your profile has.",
+    });
+    expect(await saveVariant({ id, name: "GCP Data Engineer", positioning: "", focusSkills: ["GCP"] })).toMatchObject({ ok: true, data: { name: "GCP Data Engineer" } });
+    expect(await prisma().resumeVariant.findUniqueOrThrow({ where: { id } })).toMatchObject({ name: "GCP Data Engineer", focusSkills: ["GCP"] });
+    expect(await addVariant({ name: "", positioning: "", focusSkills: [] })).toMatchObject({ ok: false });
+
+    await removeVariant({ id });
+    expect(await prisma().resumeVariant.count()).toBe(0);
+    expect(await saveVariant({ id, name: "Gone", positioning: "", focusSkills: [] })).toEqual({ ok: false, error: "That variant no longer exists." });
   });
 });
 

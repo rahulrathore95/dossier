@@ -8,6 +8,8 @@ import { loadTaskOptions } from "@/lib/ai/task-options";
 import { tailorResume, writeCoverLetter } from "@/lib/ai/tasks";
 import { extractedSchema, matchSchema, unitsSchema } from "@/lib/application-data";
 import { loadProfile } from "@/lib/profile-data";
+import { recommendVariant } from "@/lib/resume-variants";
+import { loadVariants } from "@/lib/resume-variants-data";
 
 import { WRITE_DOCUMENTS_STEPS } from "./application-steps";
 import { defineJob } from "./runner";
@@ -29,19 +31,38 @@ export const writeDocumentsJob = defineJob({
     match: matchSchema,
     tone: z.enum(Tone),
     note: z.string().max(2000),
+    /** The resume variant (this fork): its id, null for none, or absent to take the one the posting fits best. */
+    variantId: z.string().min(1).nullable().optional(),
   }),
-  result: z.object({ resume: unitsSchema, resumeWith: z.string(), letter: unitsSchema, letterWith: z.string() }),
-  async run({ posting, extracted, match, tone, note }, { step, signal }) {
+  result: z.object({
+    resume: unitsSchema,
+    resumeWith: z.string(),
+    letter: unitsSchema,
+    letterWith: z.string(),
+    /** The variant the resume was written from, and why when it was recommended; absent in results from before variants. */
+    variantId: z.string().nullable().optional(),
+    variantReason: z.string().optional(),
+  }),
+  async run({ posting, extracted, match, tone, note, variantId }, { step, signal }) {
     await step(WRITE_DOCUMENTS_STEPS[0]);
-    const [provider, options, profile] = await Promise.all([getAiProvider(), loadTaskOptions(), loadProfile()]);
+    const [provider, options, profile, variants] = await Promise.all([getAiProvider(), loadTaskOptions(), loadProfile(), loadVariants()]);
     // "Anything I should know?" is the application's first fact (APP-15).
     const facts = note.trim() ? [note.trim()] : [];
-    const resume = await tailorResume(provider, { profile, extracted, match, facts, posting }, { ...options, signal });
+    const recommended = variantId === undefined ? recommendVariant(variants, posting) : null;
+    const variant = recommended?.variant ?? (variantId ? (variants.find((entry) => entry.id === variantId) ?? null) : null);
+    const resume = await tailorResume(provider, { profile, extracted, match, facts, posting, variant }, { ...options, signal });
 
     await step(WRITE_DOCUMENTS_STEPS[1]);
     const letter = await writeCoverLetter(provider, { profile, extracted, match, tone, facts, posting }, { ...options, signal });
 
-    return { resume: resume.data, resumeWith: resume.promptVersion, letter: letter.data, letterWith: letter.promptVersion };
+    return {
+      resume: resume.data,
+      resumeWith: resume.promptVersion,
+      letter: letter.data,
+      letterWith: letter.promptVersion,
+      variantId: variant?.id ?? null,
+      ...(recommended ? { variantReason: recommended.reason } : {}),
+    };
   },
 });
 

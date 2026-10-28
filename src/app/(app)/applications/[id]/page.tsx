@@ -5,6 +5,7 @@ import { activityTimeline } from "@/lib/activity";
 import { isAiConfigured } from "@/lib/ai/config";
 import { editsSchema, matchSchema, matchScore } from "@/lib/application-data";
 import { loadApplication, loadDocuments, readJson } from "@/lib/application-documents";
+import { jobFacts } from "@/lib/job-facts";
 import { formatShortDate } from "@/lib/dates";
 import { resolveFileName } from "@/lib/file-name";
 import { refineJobKey } from "@/lib/jobs/refine";
@@ -99,6 +100,7 @@ export default async function ApplicationPage({ params, searchParams }: PageProp
         // New applications only keep web links, but an imported file could carry any URL (E11-5).
         url: /^https?:\/\//i.test(application.postingUrl) ? application.postingUrl : "",
         pasted: formatShortDate(application.createdAt),
+        about: await jobFacts(application),
       }}
       match={match}
       requirements={extracted?.requirements ?? []}

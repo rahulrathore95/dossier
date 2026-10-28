@@ -308,6 +308,9 @@ export const deleteEverything = action(z.object({ confirm: z.literal("DELETE") }
     await tx.reference.deleteMany();
     await tx.fact.deleteMany();
     await tx.profileField.deleteMany();
+    // The master resume's uploaded originals and its variants (this fork).
+    await tx.resumeFile.deleteMany();
+    await tx.resumeVariant.deleteMany();
     await tx.theme.deleteMany({ where: { builtIn: false } });
     await tx.setting.deleteMany();
   });

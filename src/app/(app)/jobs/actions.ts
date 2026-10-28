@@ -7,11 +7,11 @@ import { isAiConfigured, isAiUsable } from "@/lib/ai/config";
 import { handOffFoundPosting, handsOffToClaude } from "@/lib/connector/handoff";
 import { loadJobSearchConfig } from "@/lib/job-search/config";
 import { fullText } from "@/lib/job-search/find";
-import { foundPostingSchema, JOB_SOURCES, searchQuerySchema } from "@/lib/job-search/search";
+import { foundPostingSchema, JOB_SOURCES, postingKey, searchQuerySchema } from "@/lib/job-search/search";
 import { findUnfinishedJobs, startJob } from "@/lib/jobs/runner";
 import { scoreJobKey, scorePostingJob } from "@/lib/jobs/score-posting";
 import { removeSearch, runSearch, showMoreFor } from "@/lib/posting-searches";
-import { dismissPosting, savePosting, storePosting, unmarkPosting } from "@/lib/postings";
+import { dismissPosting, postingStates, savePosting, storePosting, unmarkPosting } from "@/lib/postings";
 import { saveSettings } from "@/lib/settings-data";
 
 // Find jobs (E14-6). Each search is kept with what it found (E14-10).
@@ -62,9 +62,15 @@ export const dismissFoundPosting = action(z.object({ posting: foundPostingSchema
 
 /**
  * "Start application" (E14-8): keeps the posting with its whole text when it
- * can be had, for New application to open from its id.
+ * can be had, for New application to open from its id. A job that already
+ * has an application (by this posting, or the same link) isn't started again
+ * unless asked for another version (this fork): no duplicate drafts by accident.
  */
-export const startApplicationFrom = action(z.object({ posting: foundPostingSchema }), async ({ posting }) => {
+export const startApplicationFrom = action(z.object({ posting: foundPostingSchema, again: z.boolean().optional() }), async ({ posting, again }) => {
+  if (!again) {
+    const existing = (await postingStates([posting])).get(postingKey(posting))?.applicationId;
+    if (existing) throw new ActionError("You already have an application for this job. Open it, or choose Write another version.");
+  }
   const text = await fullText(posting);
   const stored = await storePosting(text ? { ...posting, description: text, complete: true } : posting);
   return { postingId: stored.id };

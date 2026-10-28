@@ -122,6 +122,16 @@ describe("Find jobs actions", () => {
       complete: false,
     });
   });
+
+  it("won't start a second application for a job that has one, unless asked for another version (this fork)", async () => {
+    const application = await prisma().application.create({ data: { title: "Already", postingUrl: posting.url } });
+    expect(await startApplicationFrom({ posting })).toEqual({
+      ok: false,
+      error: "You already have an application for this job. Open it, or choose Write another version.",
+    });
+    expect(await startApplicationFrom({ posting, again: true })).toMatchObject({ ok: true });
+    expect(application.id).toBeTruthy();
+  });
 });
 
 describe("Score (#208)", () => {

@@ -250,9 +250,24 @@ export function PostingResults(props: PostingResultsProps) {
           scoring={scoring[postingKey(selected)] ?? null}
           onScore={() => void score(selected)}
         >
-          {!selected.state.dismissed && (
-            <StartButton starting={starting === postingKey(selected)} onClick={() => void start(withoutState(selected), postingKey(selected))} />
-          )}
+          {!selected.state.dismissed &&
+            (selected.state.applicationId ? (
+              // Already applied: no second draft by accident (this fork), but another version on purpose.
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-disabled={starting === postingKey(selected) || undefined}
+                onClick={() => {
+                  if (window.confirm("You already have an application for this job. Write another version anyway?")) {
+                    void start(withoutState(selected), postingKey(selected), { again: true });
+                  }
+                }}
+              >
+                Write another version
+              </Button>
+            ) : (
+              <StartButton starting={starting === postingKey(selected)} onClick={() => void start(withoutState(selected), postingKey(selected))} />
+            ))}
         </PostingDetail>
       )}
     </div>

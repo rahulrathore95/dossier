@@ -5,6 +5,7 @@ import { isAiConfigured } from "@/lib/ai/config";
 import { getSession } from "@/lib/auth/session";
 import { discardProfileImports } from "@/lib/jobs/import-profile";
 import { startJob } from "@/lib/jobs/runner";
+import { saveResumeFile } from "@/lib/resume-files";
 import { RESUME_MESSAGES } from "@/lib/resume-text";
 import { docxWith } from "@/test/resume-files";
 
@@ -13,6 +14,7 @@ import { POST } from "./route";
 vi.mock("@/lib/auth/session", () => ({ getSession: vi.fn() }));
 vi.mock("@/lib/ai/config", () => ({ isAiConfigured: vi.fn(async () => true) }));
 vi.mock("@/lib/jobs/runner", () => ({ startJob: vi.fn(async () => "job-1"), defineJob: (definition: unknown) => definition }));
+vi.mock("@/lib/resume-files", () => ({ saveResumeFile: vi.fn(async () => ({})) }));
 vi.mock("@/lib/jobs/import-profile", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/jobs/import-profile")>()),
   discardProfileImports: vi.fn(async () => {}),
@@ -37,6 +39,12 @@ beforeEach(() => {
 });
 
 describe("POST /api/profile/import (E4-10)", () => {
+  it("keeps the original file as sent (this fork), apart from its text", async () => {
+    vi.mocked(saveResumeFile).mockClear();
+    await post(Buffer.from(resume), { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "x-file-name": encodeURIComponent("Jane Doe CV.docx") });
+    expect(saveResumeFile).toHaveBeenCalledWith("Jane%20Doe%20CV.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", new Uint8Array(resume));
+  });
+
   it("reads the file and starts a job with its text", async () => {
     const response = await post(Buffer.from(resume));
     expect(await response.json()).toEqual({ jobId: "job-1" });

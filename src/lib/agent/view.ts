@@ -143,7 +143,7 @@ export async function loadAgentView(now = new Date()): Promise<AgentView> {
     setupSection: setupProblem ? sectionOf(setupProblem) : null,
     limitReached: runsInPastDay(settings.agentRuns, now).length >= AGENT_MAX_RUNS_PER_DAY,
     lastRun: last ? { at: formatDateTime(new Date(last.at), timeZone, now), message: last.message } : null,
-    nextRun: settings.agentEnabled ? formatDateTime(nextAgentRun(now, settings.agentHour, timeZone, settings.agentRuns), timeZone, now) : null,
+    nextRun: settings.agentEnabled ? formatDateTime(nextAgentRun(now, settings.agentHour, timeZone, settings.agentRuns, settings.agentRunsPerDay), timeZone, now) : null,
     runJobId: runJobs[0]?.id ?? null,
     drafts,
     scored: waiting.filter((candidate) => candidate.score >= settings.agentMinScore).map(view),

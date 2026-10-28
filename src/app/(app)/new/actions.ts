@@ -63,8 +63,10 @@ export const startWritingDocuments = action(
     match: matchSchema,
     tone: z.enum(Tone),
     note: z.string().trim().max(2000),
+    /** The resume variant (this fork): an id, null for none, or absent for the posting's best fit. */
+    variantId: z.string().min(1).nullable().optional(),
   }),
-  async ({ readJobId, details, match, tone, note }) => {
+  async ({ readJobId, details, match, tone, note, variantId }) => {
     const reading = await finishedReading(readJobId);
     const orNull = (value: string) => value || null;
     const extracted = {
@@ -77,7 +79,7 @@ export const startWritingDocuments = action(
       salary: orNull(details.salary),
       deadline: orNull(details.deadline),
     };
-    return startJob(writeDocumentsJob, { readJobId, posting: reading.input.posting, extracted, match, tone, note });
+    return startJob(writeDocumentsJob, { readJobId, posting: reading.input.posting, extracted, match, tone, note, ...(variantId === undefined ? {} : { variantId }) });
   },
 );
 

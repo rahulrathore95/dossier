@@ -86,7 +86,7 @@ export async function createApplicationFromDocuments({ reading, documents, match
       labels: documentLabels(language),
     }),
   );
-  const summary = tailoringSummary({
+  const tailored = tailoringSummary({
     profile,
     company: details.company,
     role: details.role,
@@ -99,6 +99,11 @@ export async function createApplicationFromDocuments({ reading, documents, match
     strict: settings.strict,
     showChanges: settings.showDiff,
   });
+  // Which resume variant it was written from, and why (this fork).
+  const variant = documents.variantId ? await prisma.resumeVariant.findUnique({ where: { id: documents.variantId }, select: { name: true } }) : null;
+  const summary = variant
+    ? { ...tailored, list: [...tailored.list, `Wrote it from your “${variant.name}” resume variant${documents.variantReason ? `: ${documents.variantReason.charAt(0).toLowerCase()}${documents.variantReason.slice(1)}` : ""}`] }
+    : tailored;
 
   const created = await prisma.$transaction(async (tx) => {
     if (claim.kind === "manual") {
@@ -139,6 +144,7 @@ export async function createApplicationFromDocuments({ reading, documents, match
         // "Anything I should know?" becomes the application's first fact (APP-15).
         ...(note.trim() ? { facts: { create: { text: note.trim() } } } : {}),
         language,
+        variantId: variant ? documents.variantId : null,
         documents: {
           create: [
             // Each starts its history with the first draft (E8-10).

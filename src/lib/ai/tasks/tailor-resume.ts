@@ -4,6 +4,7 @@ import { unitsSchema, type Extracted, type Match, type Unit } from "@/lib/applic
 import { publicationLabel } from "@/lib/citation";
 import { documentLabels, ENGLISH_LABELS, languagesLine, type DocumentLabels } from "@/lib/document-labels";
 import { resumePublications, sameName, type ProfileData } from "@/lib/profile";
+import { variantForPrompt, type ResumeVariant } from "@/lib/resume-variants";
 
 import { guardSources, guardUnits } from "../fact-guard";
 
@@ -21,13 +22,13 @@ import {
   type Task,
 } from "./prompt-parts";
 
-export const TAILOR_RESUME_VERSION = "tailor-resume@6";
+export const TAILOR_RESUME_VERSION = "tailor-resume@7";
 
 const answerSchema = z.object({
   summary: z.string(),
   roles: z.array(z.object({ id: z.string(), bullets: z.array(z.string()) })),
   projects: z.array(z.object({ id: z.string(), bullets: z.array(z.string()) })),
-  /** The profile's skills, most relevant first; leave out ones that don't help. */
+  /** The profile's skills, most relevant first; any left out are added after them (resumeUnits). */
   skills: z.array(z.string()),
   education: z.array(z.object({ id: z.string(), notes: z.string() })),
 });
@@ -35,19 +36,24 @@ const answerSchema = z.object({
 const INSTRUCTIONS = `You tailor a candidate's resume to one job, as JSON.
 
 - summary: 2–3 sentences in the first person without "I" at the start of every sentence, about the candidate as this job would see them.
-- roles: every role from the profile, by id, with 2–5 bullets each. Lead with what this job cares about, keep each bullet to one line, and start with a verb.
+- roles: every role from the profile, by id, with 2–5 bullets each, most relevant to this job first. Write every bullet in full: start with an action verb, say what was done and how, and keep the measured result wherever the profile gives one. Never shorten a bullet into a fragment to save space.
 - projects: every project from the profile, by id, with 1–3 bullets each, written like the roles' bullets: what was built and what it shows that this job cares about.
-- skills: the candidate's own skills, most relevant to this job first. Copy their names exactly; you may leave out ones that don't help.
+- skills: every one of the candidate's own skills, the ones this job asks for first. Copy their names exactly.
 - education: every entry by id, with its notes shortened or left empty.
 - The profile's publications go on the resume word for word, so don't answer with them; the summary may mention them.`;
 
-/** SET-9: asked for when "Resume length" has a limit; anything still over is trimmed afterwards (E10-10). */
+/**
+ * SET-9: asked for when "Resume length" has a limit. Fitting the page is done
+ * afterwards by leaving out whole bullets least relevant to the job (E10-10,
+ * page-limit.ts) — never by shortening them — so the model is asked for
+ * complete bullets, in order of relevance, rather than for fewer words.
+ */
 function pageFit(maxPages: number | null | undefined): string | null {
   if (maxPages === 1) {
-    return "The resume has to fit on one page: keep the summary to two sentences, give the most relevant roles 3–4 bullets and older roles 2, and keep education and project notes to a few words.";
+    return "The resume will be fitted to one page afterwards by leaving out the bullets that matter least to this job, and the summary: so give each role the bullets this job cares about, most relevant first, each written in full, and keep education and project notes to a few words. Do not shorten bullets to save space.";
   }
   if (maxPages === 2) {
-    return "The resume has to fit on two pages: keep the summary to three sentences, give the most relevant roles 4–5 bullets and older roles 2–3, and keep education and project notes short.";
+    return "The resume will be fitted to two pages afterwards by leaving out the bullets that matter least to this job: give each role its relevant bullets, most relevant first, each written in full, and keep education and project notes short. Do not shorten bullets to save space.";
   }
   return null;
 }
@@ -60,13 +66,16 @@ export type TailorInput = {
   facts: string[];
   /** The posting as pasted, for the fact guard. */
   posting: string;
+  /** The resume variant to write it from (this fork): emphasis only, never facts. */
+  variant?: Pick<ResumeVariant, "name" | "positioning" | "focusSkills"> | null;
 };
 
 /** APP-4: the tailored resume as units (summary, each role, each project, skills, each degree, each publication, languages). */
-export const tailorResume: Task<TailorInput, Unit[]> = async (provider, { profile, extracted, match, facts, posting }, options) => {
+export const tailorResume: Task<TailorInput, Unit[]> = async (provider, { profile, extracted, match, facts, posting, variant }, options) => {
   const answer = await provider.complete({
     system: system(
       INSTRUCTIONS,
+      variant ? variantForPrompt(variant, profile.skills.map((skill) => skill.name)) : null,
       pageFit(options.maxPages),
       truthfulness(options.strict),
       candidateFacts(profile, facts),
@@ -112,9 +121,9 @@ export function resumeUnits(profile: ProfileData, answer: z.infer<typeof answerS
   const roles = new Map(answer.roles.map((role) => [role.id, role.bullets]));
   const projects = new Map(answer.projects.map((project) => [project.id, project.bullets]));
   const notes = new Map(answer.education.map((entry) => [entry.id, entry.notes]));
-  const skills = [
-    ...new Set(answer.skills.flatMap((name) => profile.skills.find((skill) => sameName(skill.name, name))?.name ?? [])),
-  ];
+  // The whole skills section, always (this fork): the model's order first, the profile's skills it left out after them. Only the profile's own names.
+  const chosen = answer.skills.flatMap((name) => profile.skills.find((skill) => sameName(skill.name, name))?.name ?? []);
+  const skills = [...new Set([...chosen, ...profile.skills.map((skill) => skill.name)])];
   const units: Unit[] = [
     { id: "summary", label: "Summary", text: answer.summary.trim() },
     ...profile.experience.map((entry) => {

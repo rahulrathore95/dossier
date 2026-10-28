@@ -123,8 +123,12 @@ export const settingsSchema = z.object({
   customLanguages: stringList.catch([]),
   fileNamePattern: z.string().catch("{name} – {company} – {doc}"),
   includeRefs: flag(false),
-  /** Up to two pages unless chosen (decided 22 October 2026: resumes aren't forced to one page). */
-  pageLimit: pageLimit.catch("2"),
+  /**
+   * One page unless chosen (this fork, 28 October 2026: a one-page resume,
+   * fitted by leaving out what's least relevant to the job, never by
+   * shrinking it). Upstream's default is up to two pages.
+   */
+  pageLimit: pageLimit.catch("1"),
   nightlyBackup: flag(true),
   /** Finished background jobs are deleted after this many hours (JOB_RETENTION_OPTIONS). */
   jobRetentionHours: z.coerce.number().refine(isJobRetention).catch(DEFAULT_JOB_RETENTION_HOURS),
@@ -185,6 +189,8 @@ export const settingsSchema = z.object({
   agentQuery: json(searchQuerySchema).catch(EMPTY_QUERY),
   /** The hour of the day it runs, in the user's time zone. */
   agentHour: z.coerce.number().int().min(0).max(23).catch(7),
+  /** How many times a day it runs, from agentHour on, evenly spread (this fork); at most the three runs a day it may make. */
+  agentRunsPerDay: z.coerce.number().int().min(1).max(3).catch(1),
   /** Postings scored below this stay out of the queue. */
   agentMinScore: z.coerce.number().int().min(0).max(100).catch(70),
   /** The most postings a run scores, and the most drafts it prepares on its own. */

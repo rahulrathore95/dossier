@@ -93,7 +93,7 @@ export function ProfileImport({
       const response = await fetch("/api/profile/import", {
         method: "POST",
         body: file,
-        headers: { "content-type": file.type || "application/octet-stream" },
+        headers: { "content-type": file.type || "application/octet-stream", "x-file-name": encodeURIComponent(file.name) },
       });
       const body = (await response.json().catch(() => null)) as { jobId?: string; error?: string } | null;
       if (!response.ok || !body?.jobId) return toast(body?.error ?? messages.unexpected);

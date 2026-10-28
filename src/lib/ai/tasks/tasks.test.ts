@@ -217,7 +217,7 @@ describe("tailorResume", () => {
 
   it("returns units, keeping only real roles and the profile's own skills (APP-4)", async () => {
     const { data, promptVersion } = await tailorResume(model(answer), { profile, extracted, match: null, facts: [], posting }, options);
-    expect(promptVersion).toBe("tailor-resume@6");
+    expect(promptVersion).toBe("tailor-resume@7");
     expect(data.map((unit) => unit.id)).toEqual([
       "summary",
       "experience:e1",
@@ -238,7 +238,10 @@ describe("tailorResume", () => {
     expect(data.find((unit) => unit.id === "experience:e1")?.text).toBe("Led the carrier portal redesign\nOwned the design system");
     // A role the model skipped keeps its own bullets.
     expect(data.find((unit) => unit.id === "experience:e2")?.text).toBe(profile.experience[1].bullets);
-    expect(data.find((unit) => unit.id === "skills")?.text).toBe("Design systems · Figma · User research");
+    // The model's order first, then every other skill of the profile's (this fork: the whole skills section, always), never "Kubernetes".
+    const chosen = ["Design systems", "Figma", "User research"];
+    expect(data.find((unit) => unit.id === "skills")?.text).toBe([...chosen, ...profile.skills.map((skill) => skill.name).filter((name) => !chosen.includes(name))].join(" · "));
+    expect(data.find((unit) => unit.id === "skills")?.text).not.toContain("Kubernetes");
     expect(data.find((unit) => unit.id === "languages")?.text).toBe("Dutch: Native · English: Fluent (C2) · German: Intermediate (B1)");
   });
 
@@ -270,9 +273,12 @@ describe("tailorResume", () => {
       await tailorResume(provider, { profile, extracted, match: null, facts: [], posting }, { ...options, maxPages });
       return sent(provider).system;
     };
-    expect(await system(1)).toMatch(/has to fit on one page/);
-    expect(await system(2)).toMatch(/has to fit on two pages/);
-    expect(await system(null)).not.toMatch(/has to fit/);
+    // Fitted afterwards by leaving out whole bullets, never by shortening them (this fork).
+    expect(await system(1)).toMatch(/fitted to one page afterwards by leaving out the bullets that matter least.*Do not shorten bullets/);
+    expect(await system(2)).toMatch(/fitted to two pages afterwards/);
+    expect(await system(null)).not.toMatch(/fitted to/);
+    expect(await system(null)).toMatch(/Never shorten a bullet into a fragment/);
+    expect(await system(null)).not.toMatch(/one line/);
   });
 
   it("words creativity for every provider, and relaxes the rules when strict mode is off", async () => {

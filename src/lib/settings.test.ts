@@ -43,7 +43,7 @@ describe("stored settings", () => {
       customLanguages: [],
       fileNamePattern: "{name} – {company} – {doc}",
       includeRefs: false,
-      pageLimit: "2",
+      pageLimit: "1",
       nightlyBackup: true,
       jobRetentionHours: 24,
       baseThemeId: "editorial",
@@ -64,9 +64,14 @@ describe("stored settings", () => {
       firecrawlKeyEnc: null,
       arbeitsagenturAcceptedAt: null,
       blockedCompanies: [],
+      jobSearchMode: "all",
+      targetRoles: [],
+      salaryFloorLpa: 40,
+      requireIndia: true,
       agentEnabled: false,
       agentQuery: { keywords: "", place: "", country: "", radiusKm: 25, remoteOnly: false, postedWithin: "any" },
       agentHour: 7,
+      agentRunsPerDay: 1,
       agentMinScore: 70,
       agentMaxScores: 15,
       agentMaxDrafts: 3,
@@ -142,9 +147,9 @@ describe("stored settings", () => {
     expect(settingsFromRows([{ key: "onePage", value: "true" }]).pageLimit).toBe("1");
     // A limit chosen since wins over the old switch.
     expect(settingsFromRows([{ key: "onePage", value: "false" }, { key: "pageLimit", value: "2" }]).pageLimit).toBe("2");
-    // Unknown, or not chosen: up to two pages.
-    expect(settingsFromRows([{ key: "pageLimit", value: "3" }]).pageLimit).toBe("2");
-    expect(settingsFromRows([]).pageLimit).toBe("2");
+    // Unknown, or not chosen: one page (this fork; upstream's default is two).
+    expect(settingsFromRows([{ key: "pageLimit", value: "3" }]).pageLimit).toBe("1");
+    expect(settingsFromRows([]).pageLimit).toBe("1");
   });
 });
 
